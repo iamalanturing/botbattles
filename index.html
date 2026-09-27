@@ -1,0 +1,3455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Battles — v1 (chunk 3: weapons + secure boundary)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/blockly@10.4.3/blockly_compressed.js"></script>
+<script src="https://unpkg.com/blockly@10.4.3/blocks_compressed.js"></script>
+<script src="https://unpkg.com/blockly@10.4.3/msg/en.js"></script>
+<style>
+  :root {
+    --bg: #1b1f27;
+    --panel-solid: #232833;
+    --floor: #262b36;
+    --amber: #f2a541;
+    --amber-dim: #a86f2c;
+    --chrome: #c9d1d9;
+    --text: #f5f2ea;
+    --text-dim: #9aa2b1;
+    --red: #f39e9b;        /* text-safe red, 7.15:1 on panels */
+    --red-solid: #e35d5d;  /* fills/borders only, never behind text */
+    --green: #6ec97a;
+    --bot-a: #5aa9e6;
+    --bot-b: #f39e9b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: 'Space Grotesk', system-ui, sans-serif; padding: 20px; min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    max-width: 1240px; margin: 0 auto 16px auto; flex-wrap: wrap; gap: 8px;
+  }
+  h1 { font-size: 1.4rem; letter-spacing: 0.02em; margin: 0; }
+  h1 .sub { color: var(--amber); }
+  .chunk-label { color: var(--text-dim); font-size: 0.85rem; font-family: 'JetBrains Mono', monospace; }
+
+  .wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--panel-solid); border: 1px solid #2f3542; border-radius: 10px; padding: 14px; }
+
+  .arena-card { display: flex; flex-direction: column; gap: 10px; }
+  .healthbars { display: flex; gap: 16px; }
+  .hb { flex: 1; }
+  .hb-label { display: flex; justify-content: space-between; align-items: baseline; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-bottom: 4px; gap: 8px; }
+  .hb-name { font-weight: 600; }
+  .hb-name.a { color: var(--bot-a); }
+  .hb-name.b { color: var(--bot-b); }
+  .hb-meta { color: var(--text-dim); font-size: 0.72rem; }
+  .hb-track { height: 10px; border-radius: 5px; background: #1a1e27; overflow: hidden; }
+  .hb-fill { height: 100%; transition: width 0.15s ease; }
+  .hb-fill.a { background: var(--bot-a); }
+  .hb-fill.b { background: var(--bot-b); }
+  .hb-status.crashed { color: var(--red); }
+  .hb-status.dead { color: var(--red); }
+
+  #arena { display: block; width: 100%; height: auto; background: var(--floor); border-radius: 8px; border: 2px solid #333a48; }
+
+  .status-row { display: flex; align-items: center; gap: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--text-dim); flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); display: inline-block; }
+  .dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.crashed { background: var(--red-solid); box-shadow: 0 0 6px var(--red); }
+  .dot.loading { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: pulse 1s infinite; }
+  .dot.ended { background: var(--chrome); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .win-banner { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(20,23,30,0.82); border-radius: 8px; flex-direction: column; gap: 6px; text-align: center; pointer-events: none; }
+  .win-banner.show { display: flex; }
+  .win-banner .big { font-size: 1.8rem; font-weight: 700; }
+  .win-banner .small { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; }
+  .win-stats { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--chrome);
+    display: flex; gap: 16px; margin-top: 2px; }
+  .win-stats .s .k { color: var(--text-dim); }
+  .win-stats .s.a .v { color: var(--bot-a); }
+  .win-stats .s.b .v { color: var(--bot-b); }
+  /* The banner ignores clicks so it can't block the canvas; the button
+     opts back in. */
+  #btn-rematch { pointer-events: auto; margin-top: 12px; font-size: 0.95rem; padding: 10px 22px; }
+
+  button { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 0.85rem; background: var(--amber); color: #1b1f27; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; transition: transform 0.08s ease, background 0.15s ease; }
+  button:hover { background: #ffb95c; }
+  button:active { transform: scale(0.96); }
+  button.secondary { background: transparent; color: var(--chrome); border: 1px solid #3a4152; }
+  button.secondary:hover { background: #2a3040; }
+  button.tiny { font-size: 0.7rem; padding: 5px 9px; font-weight: 600; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .controls { display: flex; gap: 8px; }
+
+  .timer { font-family: 'JetBrains Mono', monospace; font-size: 1rem; font-weight: 600; color: var(--chrome); letter-spacing: 0.04em; }
+
+  /* --- Garage --- */
+  .garage-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+  .class-picker { display: flex; gap: 6px; align-items: center; }
+  .class-btn { background: transparent; border: 1px solid #3a4152; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; font-weight: 600; padding: 5px 10px; }
+  .class-btn:hover { background: #2a3040; color: var(--chrome); }
+  .class-btn.active { background: var(--amber); color: #1b1f27; border-color: var(--amber); }
+
+  .garages { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .garages { grid-template-columns: 1fr; } }
+
+  .garage { border: 1px solid #2f3542; border-radius: 8px; padding: 12px; background: #1e222b; }
+  .garage.a { border-top: 3px solid var(--bot-a); }
+  .garage.b { border-top: 3px solid var(--bot-b); }
+
+  .name-row { display: flex; gap: 6px; margin-bottom: 4px; }
+  .bot-name-input {
+    flex: 1; background: #1a1e27; border: 1px solid #3a4152; border-radius: 5px;
+    color: var(--text); font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+    font-size: 0.95rem; padding: 7px 10px;
+  }
+  .bot-name-input:focus { outline: 2px solid var(--amber); outline-offset: -1px; }
+  .bot-name-input.a { border-left: 3px solid var(--bot-a); }
+  .bot-name-input.b { border-left: 3px solid var(--bot-b); }
+  .bot-name-input::placeholder { color: #57607a; font-weight: 500; }
+
+  .garage-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; gap: 8px; }
+  .garage-title .who { font-weight: 700; font-size: 0.9rem; }
+  .garage-title .who.a { color: var(--bot-a); }
+  .garage-title .who.b { color: var(--bot-b); }
+  .points { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 600; }
+  .points .over { color: var(--red); }
+  .points .ok { color: var(--green); }
+
+  .over-budget { background: rgba(227,93,93,0.14); border: 1px solid var(--red); color: var(--red);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; font-weight: 600; padding: 5px 8px;
+    border-radius: 5px; margin-bottom: 8px; text-align: center; letter-spacing: 0.05em; }
+
+  .sub-label { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.08em; margin: 10px 0 5px 0; }
+
+  .chassis-row { display: flex; gap: 6px; }
+  .chassis-btn { flex: 1; background: #1a1e27; border: 1px solid #333a48; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; font-weight: 600; padding: 7px 4px;
+    border-radius: 5px; text-align: center; }
+  .chassis-btn:hover { border-color: #4a5263; color: var(--chrome); background: #232833; }
+  .chassis-btn.sel { border-color: var(--amber); color: var(--amber); background: rgba(242,165,65,0.1); }
+  .chassis-btn .c { display: block; font-size: 0.62rem; opacity: 0.7; margin-top: 2px; }
+
+  .slots { display: flex; gap: 5px; flex-wrap: wrap; }
+  .slot { flex: 1 1 0; min-width: 66px; height: 42px; border: 1px dashed #3a4152; border-radius: 5px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; color: #57607040; cursor: default;
+    background: #191d25; padding: 2px; text-align: center; }
+  .slot.filled { border-style: solid; border-color: #4a5263; color: var(--chrome); cursor: pointer; background: #232833; }
+  .slot.filled:hover { border-color: var(--red); color: var(--red); }
+  .slot.filled .cost { font-size: 0.58rem; opacity: 0.65; }
+  .slot .empty-label { color: #576070; }
+
+  .parts { display: flex; flex-wrap: wrap; gap: 5px; }
+  .part { background: #1a1e27; border: 1px solid #333a48; color: var(--chrome);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; font-weight: 600;
+    padding: 5px 8px; border-radius: 5px; }
+  .part:hover:not(:disabled) { border-color: var(--amber); background: #2a3040; }
+  .part .pc { color: var(--amber); margin-left: 4px; }
+  .part:disabled { opacity: 0.32; }
+  .part.wep { border-left: 3px solid #7fd0e8; }
+  .part.def { border-left: 3px solid #6ec97a; }
+  .part.gad { border-left: 3px solid #c98ae0; }
+
+  .garage-blurb { font-family: 'JetBrains Mono', monospace; font-size: 0.64rem; color: var(--text-dim);
+    margin-top: 8px; min-height: 26px; line-height: 1.4; }
+  .timer.urgent { color: var(--red); }
+  select { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; background: #1a1e27; color: var(--chrome); border: 1px solid #3a4152; border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+  select:focus { outline: 1px solid var(--amber); }
+
+  .editors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .editors { grid-template-columns: 1fr; } }
+  .editor-card.a { border-top: 3px solid var(--bot-a); }
+  .editor-card.b { border-top: 3px solid var(--bot-b); }
+  .editor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+  .editor-title { font-weight: 700; font-size: 0.95rem; }
+  .editor-title.a { color: var(--bot-a); }
+  .editor-title.b { color: var(--bot-b); }
+  textarea.code-editor { width: 100%; height: 300px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; line-height: 1.5; background: #1a1e27; color: var(--chrome); border: 1px solid #333a48; border-radius: 6px; padding: 10px; tab-size: 4; }
+  textarea.code-editor:focus { outline: 2px solid var(--amber); outline-offset: -1px; }
+  .editor-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; flex-wrap: wrap; }
+  .editor-hint { color: var(--text-dim); font-size: 0.72rem; font-family: 'JetBrains Mono', monospace; }
+  .editor-hint.bad { color: var(--red); }
+
+  /* --- Blocks / Python split --- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .split.python-only { grid-template-columns: 1fr; }
+  .split.python-only .blockly-host { display: none; }
+
+  .blockly-host { height: 340px; border: 1px solid #333a48; border-radius: 6px; background: #1a1e27; overflow: hidden; }
+  .split textarea.code-editor { height: 340px; }
+
+  .mode-toggle { display: inline-flex; border: 1px solid #3a4152; border-radius: 6px; overflow: hidden; }
+  .mode-btn { background: transparent; color: var(--text-dim); border: none; border-radius: 0;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; font-weight: 600; padding: 5px 10px; }
+  .mode-btn:hover { background: #2a3040; color: var(--chrome); }
+  .mode-btn.active { background: var(--amber); color: #1b1f27; }
+
+  textarea.code-editor[readonly] { opacity: 0.85; cursor: default; }
+  textarea.code-editor.invalid { outline: 2px solid var(--red); outline-offset: -1px; }
+
+  /* --- Full-screen editor --- */
+  .fs-backdrop { display: none; position: fixed; inset: 0; background: rgba(15,17,22,0.75); z-index: 400; }
+  .fs-backdrop.show { display: block; }
+
+  .editor-card.fullscreen {
+    position: fixed; inset: 14px; z-index: 500; margin: 0;
+    display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .editor-card.fullscreen .split { flex: 1; min-height: 0; }
+  .editor-card.fullscreen .blockly-host,
+  .editor-card.fullscreen textarea.code-editor { height: 100%; min-height: 0; }
+  .editor-card.fullscreen .split { grid-template-columns: 1.45fr 1fr; }
+  .editor-card.fullscreen.blocks-hidden .split { grid-template-columns: 1fr; }
+
+  .blocklyToolboxDiv { background: #20242e !important; border-right: 1px solid #333a48; }
+  .blocklyTreeLabel { font-family: 'Space Grotesk', sans-serif !important; font-size: 0.78rem !important; }
+  .blocklyMainBackground { stroke: none !important; }
+  .blocklyFlyoutBackground { fill: #191d25 !important; }
+
+  .cols { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+  .label { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.7rem; color: var(--text-dim); margin: 0 0 8px 0; }
+  .log { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; background: #1a1e27; border-radius: 6px; padding: 10px; height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+  .log .entry .who { font-weight: 700; }
+  .log .entry.a .who { color: var(--bot-a); }
+  .log .entry.b .who { color: var(--bot-b); }
+  .log .entry.system { color: var(--text-dim); font-style: italic; }
+  .log .entry.hit { color: var(--amber); }
+  .log .entry.budget { color: var(--red); }
+  .log .entry.security { color: var(--green); }
+
+  table.ref { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+  table.ref th { text-align: left; color: var(--text-dim); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid #333a48; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.65rem; }
+  table.ref td { padding: 4px 6px; border-bottom: 1px solid #2a3040; color: var(--chrome); }
+  table.ref td.w { color: var(--amber); }
+
+  .api-list { font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: var(--chrome); line-height: 1.7; }
+  .api-list .c { color: var(--amber); }
+  .api-list .note { color: var(--text-dim); }
+
+  footer { max-width: 1240px; margin: 0 auto; color: var(--text-dim); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BOT BATTLES <span class="sub">// v1</span></h1>
+  <div class="chunk-label">chunk 3 — weapons, radar, projectiles, command-queue sandbox</div>
+</header>
+
+<div class="wrap">
+
+  <div class="card arena-card">
+    <div class="healthbars">
+      <div class="hb">
+        <div class="hb-label">
+          <span class="hb-name a" id="name-a">Bot A</span>
+          <span class="hb-meta" id="meta-a">—</span>
+          <span class="hb-status" id="hbstatus-a">loading</span>
+        </div>
+        <div class="hb-track"><div class="hb-fill a" id="hbfill-a" style="width:100%"></div></div>
+      </div>
+      <div class="hb">
+        <div class="hb-label">
+          <span class="hb-name b" id="name-b">Bot B</span>
+          <span class="hb-meta" id="meta-b">—</span>
+          <span class="hb-status" id="hbstatus-b">loading</span>
+        </div>
+        <div class="hb-track"><div class="hb-fill b" id="hbfill-b" style="width:100%"></div></div>
+      </div>
+    </div>
+
+    <div style="position:relative;">
+      <canvas id="arena" width="800" height="500"></canvas>
+      <div class="win-banner" id="win-banner">
+        <div class="big" id="win-big">—</div>
+        <div class="small" id="win-small">—</div>
+        <div class="win-stats" id="win-stats"></div>
+        <button id="btn-rematch">↻ Rematch</button>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <span class="dot loading" id="status-dot"></span>
+      <span id="status-text">Loading Python engine…</span>
+      <span style="flex:1"></span>
+      <span class="timer" id="timer">1:30</span>
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="show-radar" checked> radar
+      </label>
+      <select id="speed-select" title="Battle speed">
+        <option value="0.15">0.15× slow-mo</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1× normal</option>
+        <option value="4">4× fast</option>
+        <option value="20">20× blitz</option>
+      </select>
+      <span id="tick-counter">tick: 0</span>
+      <div class="controls">
+        <button id="btn-step" class="secondary" disabled>Step</button>
+        <button id="btn-pause" disabled>Pause</button>
+        <button id="btn-launch">Launch Battle</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card garage-card">
+    <div class="garage-head">
+      <p class="label" style="margin:0">The Garage</p>
+      <div class="class-picker">
+        <span class="editor-hint">Point class:</span>
+        <button class="class-btn" data-class="50">50 · Scrapyard</button>
+        <button class="class-btn active" data-class="100">100 · Standard</button>
+        <button class="class-btn" data-class="200">200 · Heavyweight</button>
+      </div>
+    </div>
+    <div class="garages" id="garages"></div>
+  </div>
+
+  <div class="fs-backdrop" id="fs-backdrop"></div>
+
+  <div class="editors">
+    <div class="card editor-card a">
+      <div class="editor-head">
+        <span class="editor-title a">Bot A</span>
+        <span style="display:flex;gap:6px;align-items:center;">
+          <span class="mode-toggle" data-mode-for="a">
+            <button class="mode-btn active" data-mode="blocks">Blocks</button>
+            <button class="mode-btn" data-mode="python">Python</button>
+          </span>
+          <button class="secondary tiny" data-save="a">↓ Save</button>
+          <button class="secondary tiny" data-load="a">↑ Load</button>
+          <button class="secondary tiny expand-btn" data-expand="a" title="Full screen (Esc to close)">⛶ Expand</button>
+        </span>
+      </div>
+      <div class="split" id="split-a">
+        <div class="blockly-host" id="blockly-a"></div>
+        <textarea id="code-a" class="code-editor" spellcheck="false"></textarea>
+      </div>
+      <div class="editor-foot">
+        <span class="editor-hint" id="hint-a">blocks build the Python — edits apply on Launch</span>
+        <button class="secondary tiny" data-copy="a">Copy Python</button>
+      </div>
+    </div>
+    <div class="card editor-card b">
+      <div class="editor-head">
+        <span class="editor-title b">Bot B</span>
+        <span style="display:flex;gap:6px;align-items:center;">
+          <span class="mode-toggle" data-mode-for="b">
+            <button class="mode-btn active" data-mode="blocks">Blocks</button>
+            <button class="mode-btn" data-mode="python">Python</button>
+          </span>
+          <button class="secondary tiny" data-save="b">↓ Save</button>
+          <button class="secondary tiny" data-load="b">↑ Load</button>
+          <button class="secondary tiny expand-btn" data-expand="b" title="Full screen (Esc to close)">⛶ Expand</button>
+        </span>
+      </div>
+      <div class="split" id="split-b">
+        <div class="blockly-host" id="blockly-b"></div>
+        <textarea id="code-b" class="code-editor" spellcheck="false"></textarea>
+      </div>
+      <div class="editor-foot">
+        <span class="editor-hint" id="hint-b">safe to break on purpose:</span>
+        <span style="display:flex;gap:6px;">
+          <button class="secondary tiny" data-copy="b">Copy Python</button>
+          <button class="secondary tiny" id="btn-runaway">⚠ runaway</button>
+          <button class="secondary tiny" id="btn-escape">🔓 escape</button>
+        </span>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="file-input" accept=".py,.txt" style="display:none">
+
+  <div class="cols">
+    <div class="card">
+      <p class="label">Battle log</p>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="card">
+        <p class="label">Weapons</p>
+        <table class="ref">
+          <tr><th>Weapon</th><th>Range</th><th>Dmg</th><th>Rate</th></tr>
+          <tr><td class="w">nail_gun</td><td>long</td><td>14</td><td>slow</td></tr>
+          <tr><td class="w">bolt_blaster</td><td>mid</td><td>9</td><td>med</td></tr>
+          <tr><td class="w">crumb_cannon</td><td>short</td><td>5×3</td><td>fast</td></tr>
+          <tr><td class="w">whisk_blades</td><td>touch</td><td>1.5/tick</td><td>—</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <p class="label">Bot API</p>
+        <div class="api-list">
+          <span class="note">— handlers you can define —</span><br>
+          <span class="c">on_start</span>(bot)<br>
+          <span class="c">on_tick</span>(bot)<br>
+          <span class="c">on_hit</span>(bot, damage, source)<br>
+          <span class="c">on_wall</span>(bot)<br>
+          <span class="note">— actions —</span><br>
+          <span class="c">bot.drive</span>(speed)<br>
+          <span class="c">bot.turn</span>(degrees)<br>
+          <span class="c">bot.turn_toward</span>(bearing)<br>
+          <span class="c">bot.stop</span>()<br>
+          <span class="c">bot.aim</span>(degrees)<br>
+          <span class="c">bot.turn_gun_toward</span>(contact)<br>
+          <span class="c">bot.fire</span>()<br>
+          <span class="c">bot.scan</span>() <span class="note">→ list of contacts</span><br>
+          <span class="c">bot.nearest_hazard</span>() <span class="note">→ dict</span><br>
+          <span class="c">bot.drop_oil_slick</span>()<br>
+          <span class="c">bot.say</span>(text)<br>
+          <span class="note">— read-only —</span><br>
+          <span class="c">bot.health</span> <span class="c">bot.speed</span><br>
+          <span class="c">bot.heading</span> <span class="c">bot.gun_heading</span><br>
+          <span class="c">bot.position</span> <span class="c">bot.wall_ahead</span><br>
+          <span class="c">bot.slicks_left</span> <span class="c">bot.on_slick</span><br>
+          <span class="c">bot.time_left</span><br>
+          <span class="note">contact = {distance, bearing, chassis}</span><br>
+          <span class="note">hazard = {distance, bearing,</span><br>
+          <span class="note">&nbsp;&nbsp;dangerous, inside}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Python now talks to the engine only through a validated command queue — no JavaScript object
+  ever enters the Python namespace, so the FFI proxy escape is gone. Try the "escape attempt"
+  button to watch it fail. Hazards, the match timer, speed controls and save/load come in chunk 4.
+</footer>
+
+<script>
+// ---------------------------------------------------------------------------
+// Bot Battles — v1 — Chunk 3
+//
+// TWO major changes over chunk 2:
+//
+// 1. SECURITY: the command-queue boundary.
+//    Chunk 2 passed a live JavaScript object into Python. Pyodide proxies it
+//    with attribute access allowed, which let bot code walk
+//    bot.constructor.constructor("return globalThis")() straight out to JS
+//    global scope. That entire escape class is now gone: the `bot` object is
+//    a PURE PYTHON object, commands come back as a JSON string of plain
+//    tuples, and sensors go in as a JSON string of plain data. No JS
+//    reference is reachable from Python, so there is no object graph to walk.
+//    Every command is then whitelisted, type-checked and clamped on the JS
+//    side before it touches the simulation.
+//
+// 2. COMBAT: weapons, gun turret, radar scanning, projectiles, damage.
+// ---------------------------------------------------------------------------
+
+const ARENA_W = 800;
+const ARENA_H = 500;
+const WALL_MARGIN = 22;
+
+const DEFAULT_CODE_A = `BOT_NAME = "Blue Bolt"
+LOADOUT = {
+    "chassis": "toaster",
+    "slots": ["bolt_blaster", "armor_plate", "oil_slick"],
+}
+
+_seen = False
+
+def on_start(bot):
+    bot.say("Scanning...")
+
+def on_tick(bot):
+    global _seen
+    contacts = bot.scan()
+    danger = bot.nearest_hazard()
+
+    # Never sit on the crusher when it's arming
+    if danger and danger["inside"] and danger["dangerous"]:
+        bot.say("Not today!")
+        bot.turn_toward(danger["bearing"] + 180)
+        bot.drive(4)
+        return
+
+    if contacts:
+        target = contacts[0]
+        if not _seen:
+            bot.say("Got you!")
+            _seen = True
+        bot.turn_gun_toward(target)
+        bot.fire()
+        # drop oil if they get close, then back off
+        if target["distance"] < 110:
+            if bot.slicks_left > 0:
+                bot.drop_oil_slick()
+            bot.drive(-3)
+        else:
+            bot.drive(2)
+    else:
+        _seen = False
+        bot.aim(9)
+        bot.drive(2)
+        bot.turn(2)
+`;
+
+const DEFAULT_CODE_B = `BOT_NAME = "Red Rascal"
+LOADOUT = {
+    "chassis": "roomba",
+    "slots": ["crumb_cannon", "bumper_guard"],
+}
+
+_flinch = 0
+
+def on_start(bot):
+    bot.say("Charge!")
+
+def on_hit(bot, damage, source):
+    # Called automatically whenever this bot takes damage.
+    global _flinch
+    bot.say("Ow! " + str(damage))
+    bot.stop()
+    _flinch = 12          # freeze for about half a second
+
+def on_wall(bot):
+    # Called automatically when this bot hits a wall.
+    bot.turn(150)
+
+def on_tick(bot):
+    global _flinch
+
+    if _flinch > 0:
+        _flinch -= 1
+        bot.stop()
+        return
+
+    contacts = bot.scan()
+
+    if contacts:
+        target = contacts[0]
+        # drive straight at them and blast away
+        bot.turn_toward(target["bearing"])
+        bot.turn_gun_toward(target)
+        bot.drive(5)
+        bot.fire()
+    else:
+        bot.aim(12)
+        bot.drive(4)
+        bot.turn(3)
+`;
+
+const RUNAWAY_CODE = `BOT_NAME = "Red Rascal"
+LOADOUT = {
+    "chassis": "roomba",
+    "slots": ["crumb_cannon"],
+}
+
+def on_start(bot):
+    bot.say("Thinking really hard...")
+
+def on_tick(bot):
+    while True:
+        pass
+`;
+
+const ESCAPE_CODE = `BOT_NAME = "Sneaky Pete"
+LOADOUT = {
+    "chassis": "toaster",
+    "slots": ["bolt_blaster"],
+}
+
+# The classic Pyodide FFI escape. In chunk 2 this WORKED, because
+# 'bot' was a live JavaScript object. Now 'bot' is a pure Python
+# object, so there is no .constructor to walk out through.
+
+def on_start(bot):
+    try:
+        escape = bot.constructor.constructor("return globalThis")()
+        bot.say("ESCAPED! Reached: " + str(escape))
+    except Exception as e:
+        bot.say("Escape blocked: " + type(e).__name__)
+
+def on_tick(bot):
+    bot.drive(2)
+    bot.turn(3)
+`;
+
+// --- Parts catalog -------------------------------------------------------
+// Single source of truth for stats AND costs. Injected into the worker so
+// the simulation and the garage can never disagree. Tuning balance means
+// editing this one object and nothing else.
+const CATALOG = {
+  chassis: {
+    roomba:  { label: 'Roomba',  cost: 15, slots: 2, health: 75,  maxSpeed: 5.5, turnRate: 6.0, ramResist: 1.25,
+               blurb: 'Fast and nimble. Folds fast if it gets hit.' },
+    toaster: { label: 'Toaster', cost: 25, slots: 3, health: 100, maxSpeed: 4.0, turnRate: 4.5, ramResist: 1.0,
+               blurb: 'The all-rounder. Good at everything, best at nothing.' },
+    fridge:  { label: 'Fridge',  cost: 45, slots: 5, health: 165, maxSpeed: 2.5, turnRate: 2.5, ramResist: 0.6,
+               blurb: 'Enormous health, five slots, turns like a barge.' },
+  },
+  weapons: {
+    nail_gun:     { label: 'Nail Gun',     cost: 25, kind: 'projectile', damage: 14,  cooldown: 34, speed: 10,  range: 420, pellets: 1, spread: 0,
+                    blurb: 'Long range, slow reload. You have to lead the target.' },
+    bolt_blaster: { label: 'Bolt Blaster', cost: 20, kind: 'projectile', damage: 9,   cooldown: 16, speed: 8,   range: 280, pellets: 1, spread: 0,
+                    blurb: 'Reliable mid-range all-rounder.' },
+    crumb_cannon: { label: 'Crumb Cannon', cost: 15, kind: 'projectile', damage: 5,   cooldown: 9,  speed: 6.5, range: 140, pellets: 3, spread: 13,
+                    blurb: 'Short range spray. Barely needs aiming.' },
+    whisk_blades: { label: 'Whisk Blades', cost: 30, kind: 'contact',    damage: 1.5, cooldown: 0,  range: 40,
+                    blurb: 'Shreds anything you can touch. You must get there.' },
+  },
+  defenses: {
+    armor_plate:  { label: 'Armor Plate',  cost: 15, effect: 'flat',   value: 2,
+                    blurb: 'Takes 2 off every hit. Costs more each time you stack it.' },
+    bumper_guard: { label: 'Bumper Guard', cost: 15, effect: 'impact', value: 0.45,
+                    blurb: 'Cuts ramming and wall damage by 45%.' },
+  },
+  gadgets: {
+    oil_slick:    { label: 'Oil Slick',    cost: 10, charges: 3,
+                    blurb: 'Three slicks. Whoever drives over one loses their steering.' },
+  },
+};
+
+// Escalating cost curve for stacked defenses: 2nd costs 1.5x, 3rd costs 2x.
+const STACK_MULTIPLIERS = [1, 1.5, 2, 2.5, 3];
+
+function itemCost(name, indexAmongSameType) {
+  const item = CATALOG.weapons[name] || CATALOG.defenses[name] || CATALOG.gadgets[name];
+  if (!item) return 0;
+  if (CATALOG.defenses[name]) {
+    const mult = STACK_MULTIPLIERS[Math.min(indexAmongSameType, STACK_MULTIPLIERS.length - 1)];
+    return Math.round(item.cost * mult);
+  }
+  return item.cost;
+}
+
+function loadoutCost(chassisName, slots) {
+  const ch = CATALOG.chassis[chassisName];
+  let total = ch ? ch.cost : 0;
+  const seen = {};
+  for (const s of slots) {
+    if (!s) continue;
+    const n = seen[s] || 0;
+    total += itemCost(s, n);
+    seen[s] = n + 1;
+  }
+  return total;
+}
+
+const POINT_CLASSES = { 50: 'Scrapyard', 100: 'Standard', 200: 'Heavyweight' };
+
+const CATALOG_JSON = JSON.stringify(CATALOG);
+
+// --- Worker ---------------------------------------------------------------
+const WORKER_SOURCE = `
+
+importScripts('https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js');
+
+const ARENA_W = ${ARENA_W};
+const ARENA_H = ${ARENA_H};
+const MARGIN = ${WALL_MARGIN};
+const BOT_RADIUS = 17;
+const TICK_MS = 1000 / 30;
+const INSTRUCTION_BUDGET = 6000;
+const MAX_COMMANDS_PER_TICK = 64;
+const RADAR_RANGE = 340;
+const RADAR_HALF_ANGLE = 50;   // degrees either side of gun heading
+const GUN_TURN_RATE = 13;      // degrees per tick
+
+// --- Match rules ---
+const MATCH_SECONDS = 90;
+const MATCH_TICKS = MATCH_SECONDS * 30;
+
+// --- Crusher hazard ---
+// Cycles idle -> warning -> slam -> retract. In the final third of the match
+// the whole cycle shortens, which is the "hazards escalate" rule that stops
+// turtle bots from stalling out a win.
+const CRUSHER = {
+  x: 330, y: 175, w: 145, h: 150,
+  idle: 95, warn: 30, slam: 14, retract: 16,
+  damage: 34,
+};
+const CRUSHER_FAST = { idle: 45, warn: 22, slam: 14, retract: 14 };
+
+// --- Oil slick ---
+const SLICK = { radius: 30, life: 900, maxPerBot: 3, grip: 0.22 };
+
+const CATALOG = ${CATALOG_JSON};
+const CHASSIS = CATALOG.chassis;
+const WEAPONS = CATALOG.weapons;
+const DEFENSES = CATALOG.defenses;
+const GADGETS = CATALOG.gadgets;
+
+// Bot-facing Python. Defined fresh in each bot's namespace so the two
+// programs share nothing. Note there is no JS object anywhere in here.
+const PY_PRELUDE = \`
+import json as _json
+import math
+import random
+
+class _Bot:
+    def __init__(self):
+        self._cmds = []
+        self._s = {}
+
+    # --- movement ---
+    def drive(self, speed):
+        self._cmds.append(["drive", float(speed)])
+    def turn(self, degrees):
+        self._cmds.append(["turn", float(degrees)])
+    def turn_toward(self, bearing):
+        self._cmds.append(["turn_toward", float(bearing)])
+    def stop(self):
+        self._cmds.append(["stop"])
+
+    # --- gun ---
+    def aim(self, degrees):
+        self._cmds.append(["aim", float(degrees)])
+    def turn_gun_toward(self, contact):
+        if contact and "bearing" in contact:
+            self._cmds.append(["aim_at", float(contact["bearing"])])
+    def fire(self):
+        self._cmds.append(["fire"])
+    def fire_weapon(self, weapon):
+        self._cmds.append(["fire_weapon", str(weapon)])
+
+    @property
+    def weapons(self):
+        return list(self._s.get("weapons", []))
+    def weapon_ready(self, weapon):
+        return weapon in self._s.get("ready_weapons", [])
+
+    # --- gadgets ---
+    def drop_oil_slick(self):
+        self._cmds.append(["drop_oil_slick"])
+
+    # --- comms ---
+    def say(self, text):
+        self._cmds.append(["say", str(text)[:80]])
+
+    # --- sensors (plain data only) ---
+    def scan(self):
+        return [dict(c) for c in self._s.get("contacts", [])]
+
+    def nearest_hazard(self):
+        h = self._s.get("hazard", None)
+        return dict(h) if h else None
+
+    @property
+    def slicks_left(self):
+        return self._s.get("slicks_left", 0)
+    @property
+    def on_slick(self):
+        return self._s.get("on_slick", False)
+    @property
+    def time_left(self):
+        return self._s.get("time_left", 0)
+
+    @property
+    def health(self):
+        return self._s.get("health", 0)
+    @property
+    def speed(self):
+        return self._s.get("speed", 0)
+    @property
+    def heading(self):
+        return self._s.get("heading", 0)
+    @property
+    def gun_heading(self):
+        return self._s.get("gun_heading", 0)
+    @property
+    def position(self):
+        return tuple(self._s.get("position", (0, 0)))
+    @property
+    def wall_ahead(self):
+        return self._s.get("wall_ahead", None)
+    @property
+    def time_alive(self):
+        return self._s.get("time_alive", 0)
+
+bot = _Bot()
+
+def _bb_prepare(sensors_json):
+    bot._s = _json.loads(sensors_json)
+    bot._cmds = []
+
+def _bb_collect():
+    return _json.dumps(bot._cmds)
+
+# Dispatchers for optional event handlers. Looked up at call time so the
+# child's code can define on_hit / on_wall anywhere in the file.
+def _bb_on_hit(damage, source):
+    f = globals().get('on_hit')
+    if f is not None:
+        f(bot, damage, source)
+
+def _bb_on_wall():
+    f = globals().get('on_wall')
+    if f is not None:
+        f(bot)
+
+def _bb_has(name):
+    return globals().get(name) is not None
+\`;
+
+let pyodide = null;
+let runWithBudget = null;
+let running = false;
+let matchOver = false;
+let tick = 0;
+let loopHandle = null;
+let bots = [];
+let projectiles = [];
+let nextProjId = 1;
+let slicks = [];
+let crusherPhase = 'idle';
+let crusherTimer = 0;
+let speedMult = 1;
+let tickAccumulator = 0;
+
+function makeBot(id, x, y, heading) {
+  return {
+    id,
+    botName: id === 'a' ? 'Bot A' : 'Bot B',
+    chassisName: 'toaster',
+    weapons: [], cooldowns: {}, defenses: [], gadgets: [],
+    armorFlat: 0, impactReduction: 0,
+    x, y, heading, gunHeading: heading,
+    speed: 0, health: 100, maxHealth: 100,
+    alive: true, crashed: false,
+    cooldown: 0, damageDealt: 0,
+    lastBudgetWarnTick: -999,
+    sayText: null, sayUntil: 0, overBudgetUntil: 0, muzzleUntil: 0,
+    slicksLeft: SLICK.maxPerBot, gripMult: 1, onSlick: false,
+    ns: null, onStart: null, onTick: null,
+    prepare: null, collect: null,
+    onHitDispatch: null, onWallDispatch: null,
+    pendingDamage: 0, pendingSource: null, pendingWall: false,
+  };
+}
+
+self.onmessage = async (e) => {
+  const msg = e.data;
+
+  if (msg.type === 'init') {
+    matchOver = false; tick = 0; projectiles = []; running = false;
+    slicks = []; crusherPhase = 'idle'; crusherTimer = 0; tickAccumulator = 0;
+    if (loopHandle) { clearInterval(loopHandle); loopHandle = null; }
+    postStatus('loading', 'Loading Python engine…');
+
+    bots = [
+      makeBot('a', ARENA_W * 0.22, ARENA_H * 0.5, 0),
+      makeBot('b', ARENA_W * 0.78, ARENA_H * 0.5, 180),
+    ];
+
+    try {
+      if (!pyodide) {
+        pyodide = await loadPyodide();
+        pyodide.runPython(\`
+import sys
+
+def _bb_tracer(frame, event, arg, _h):
+    if event == 'line' or event == 'call':
+        _h['n'] += 1
+        if _h['n'] > _h['limit']:
+            raise RuntimeError('BUDGET_EXCEEDED')
+    return lambda f, e, a: _bb_tracer(f, e, a, _h)
+
+def run_with_budget(fn, limit, *args):
+    h = {'n': 0, 'limit': limit}
+    sys.settrace(lambda f, e, a: _bb_tracer(f, e, a, h))
+    try:
+        fn(*args)
+    finally:
+        sys.settrace(None)
+\`);
+        runWithBudget = pyodide.globals.get('run_with_budget');
+      }
+
+      const setupErrors = [];
+      const startEvents = [];
+
+      for (const b of bots) {
+        b.ns = pyodide.globals.get('dict')();
+        // Prelude first, then the child's code. Their code can shadow
+        // things in its own namespace but cannot reach the other bot's.
+        pyodide.runPython(PY_PRELUDE, { globals: b.ns });
+        try {
+          pyodide.runPython(msg.codes[b.id], { globals: b.ns });
+        } catch (err) {
+          b.crashed = true;
+          setupErrors.push({ botId: b.id, text: 'Code error: ' + friendlyError(err) });
+        }
+
+        b.onStart = b.ns.get('on_start');
+        b.onTick = b.ns.get('on_tick');
+        b.prepare = b.ns.get('_bb_prepare');
+        b.collect = b.ns.get('_bb_collect');
+        b.onHitDispatch = b.ns.get('_bb_on_hit');
+        b.onWallDispatch = b.ns.get('_bb_on_wall');
+
+        const nm = b.ns.get('BOT_NAME');
+        if (nm) b.botName = String(nm).slice(0, 28);
+
+        // Loadout: chassis plus a list of slot items. Falls back gracefully
+        // if a bot file predates the garage.
+        const lo = b.ns.get('LOADOUT');
+        let chassisName = 'toaster';
+        let slotItems = [];
+        if (lo) {
+          try {
+            const loObj = lo.toJs ? lo.toJs({ dict_converter: Object.fromEntries }) : null;
+            if (loObj) {
+              if (typeof loObj.chassis === 'string' && CHASSIS[loObj.chassis]) chassisName = loObj.chassis;
+              if (Array.isArray(loObj.slots)) {
+                slotItems = loObj.slots.filter(s => typeof s === 'string');
+              } else if (loObj.slots && typeof loObj.slots.length === 'number') {
+                slotItems = Array.from(loObj.slots).filter(s => typeof s === 'string');
+              }
+              // legacy single-weapon form
+              if (!slotItems.length && typeof loObj.weapon === 'string') slotItems = [loObj.weapon];
+            }
+          } catch (err) { /* defaults */ }
+        }
+        if (!slotItems.length) slotItems = ['bolt_blaster'];
+
+        b.chassisName = chassisName;
+        const ch = CHASSIS[chassisName];
+
+        // Enforce the chassis slot limit here too — the garage checks it, but
+        // a hand-edited file must not be able to smuggle in extra hardware.
+        slotItems = slotItems.slice(0, ch.slots);
+
+        const stackCount = {};
+        for (const item of slotItems) {
+          if (WEAPONS[item]) {
+            b.weapons.push(item);
+            b.cooldowns[item] = 0;
+          } else if (DEFENSES[item]) {
+            b.defenses.push(item);
+            const d = DEFENSES[item];
+            const n = stackCount[item] || 0;
+            // Diminishing returns on stacked armor so it can't become absolute
+            const falloff = Math.pow(0.75, n);
+            if (d.effect === 'flat') b.armorFlat += d.value * falloff;
+            if (d.effect === 'impact') b.impactReduction = Math.min(0.8, b.impactReduction + d.value * falloff);
+            stackCount[item] = n + 1;
+          } else if (GADGETS[item]) {
+            b.gadgets.push(item);
+          }
+        }
+        if (!b.weapons.length) b.weapons = [];
+        b.slicksLeft = b.gadgets.filter(g => g === 'oil_slick').length * GADGETS.oil_slick.charges;
+
+        b.health = ch.health;
+        b.maxHealth = ch.health;
+
+        if (b.onStart && !b.crashed) {
+          try {
+            b.prepare(JSON.stringify(buildSensors(b)));
+            runWithBudget(b.onStart, INSTRUCTION_BUDGET, b.ns.get('bot'));
+            // BUGFIX: these events used to be collected into a throwaway
+            // array, so nothing a bot said in on_start ever reached the log.
+            applyCommands(b, JSON.parse(b.collect()), startEvents);
+          } catch (err) {
+            startEvents.push({ botId: b.id, kind: 'system', text: b.botName + ' had trouble starting: ' + friendlyError(err) });
+          }
+        }
+      }
+
+      self.postMessage({
+        type: 'ready',
+        bots: bots.map(b => ({
+          id: b.id, name: b.botName, chassis: b.chassisName,
+          weapons: b.weapons.slice(), defenses: b.defenses.slice(),
+          gadgets: b.gadgets.slice(), maxHealth: b.maxHealth,
+        })),
+        setupErrors: setupErrors,
+        startEvents: startEvents,
+        says: bots.map(b => ({ id: b.id, text: b.sayText, until: b.sayUntil })),
+      });
+
+      postStatus('running', 'Running');
+      running = true;
+      startLoop();
+    } catch (err) {
+      postStatus('crashed', 'Setup failed: ' + friendlyError(err));
+    }
+  }
+
+  if (msg.type === 'pause') { running = false; postStatus('paused', 'Paused'); }
+  if (msg.type === 'resume') { if (!matchOver) { running = true; postStatus('running', 'Running'); } }
+  if (msg.type === 'speed') {
+    const v = Number(msg.multiplier);
+    if (Number.isFinite(v) && v > 0 && v <= 40) speedMult = v;
+  }
+  if (msg.type === 'step') { if (!matchOver) stepTick(true); }
+};
+
+function friendlyError(err) {
+  const m = String(err && err.message ? err.message : err);
+  const lines = m.split('\\n').filter(Boolean);
+  const last = lines[lines.length - 1] || m;
+
+  // Translate Python's errors into something a kid can act on. The raw
+  // traceback is technically accurate and completely useless to a beginner.
+  if (last.indexOf('IndentationError') !== -1)
+    return "spacing problem — a line needs to line up with the ones around it";
+  if (last.indexOf('SyntaxError') !== -1)
+    return "Python couldn't read that line — check for a missing : or a missing )";
+  if (last.indexOf('positional argument') !== -1)
+    return "that function was given the wrong number of things in its ( )";
+  if (last.indexOf('object is not callable') !== -1)
+    return "tried to use something as a function that isn't one — check for a stray ( )";
+  if (last.indexOf('has no attribute') !== -1) {
+    const mm = last.match(/has no attribute '([^']+)'/);
+    return mm ? ("there's no bot." + mm[1] + " — check the spelling against the API list") : "that name doesn't exist on the bot";
+  }
+  if (last.indexOf('NameError') !== -1) {
+    const mm = last.match(/name '([^']+)' is not defined/);
+    return mm ? ("'" + mm[1] + "' hasn't been created yet — is it spelled right?") : last;
+  }
+  if (last.indexOf('list index out of range') !== -1)
+    return "asked for an item that isn't in the list — is the list empty?";
+  if (last.indexOf('KeyError') !== -1)
+    return "asked a contact for information it doesn't have — try distance, bearing or chassis";
+  if (last.indexOf('unsupported operand') !== -1 || last.indexOf('TypeError') !== -1)
+    return "tried to mix two things that don't go together (like a word and a number)";
+  if (last.indexOf('ZeroDivisionError') !== -1)
+    return "divided by zero — the bottom of a division can't be 0";
+  return last;
+}
+
+function postStatus(state, text) { self.postMessage({ type: 'status', state, text }); }
+
+function startLoop() {
+  // Time-accumulator loop: a fixed 4ms interval feeds simulated time in at
+  // speedMult rate, and we run whole 30Hz ticks out of the accumulator. This
+  // gives smooth 0.25x slow motion AND 20x fast-forward from one mechanism,
+  // without ever changing the simulation's fixed timestep.
+  loopHandle = setInterval(() => {
+    if (!running || matchOver) return;
+    tickAccumulator += 4 * speedMult;
+    let budget = 45;   // hard cap so a huge multiplier can't lock the worker
+    while (tickAccumulator >= TICK_MS && budget-- > 0 && !matchOver) {
+      tickAccumulator -= TICK_MS;
+      stepTick(false);
+    }
+    if (matchOver) tickAccumulator = 0;
+  }, 4);
+}
+
+// --- Hazards -------------------------------------------------------------
+
+function crusherTiming() {
+  // Escalation: the final third of the match runs a tighter cycle.
+  return (tick > MATCH_TICKS * 0.66) ? CRUSHER_FAST : CRUSHER;
+}
+
+function updateCrusher(events) {
+  const t = crusherTiming();
+  crusherTimer++;
+  if (crusherPhase === 'idle' && crusherTimer >= t.idle) { crusherPhase = 'warn'; crusherTimer = 0; }
+  else if (crusherPhase === 'warn' && crusherTimer >= t.warn) {
+    crusherPhase = 'slam'; crusherTimer = 0;
+    // Damage everything inside the plate the moment it lands
+    for (const b of bots) {
+      if (!b.alive) continue;
+      if (insideCrusher(b.x, b.y)) {
+        damage(b, CRUSHER.damage, null, events, b.botName + ' got flattened by the crusher (' + CRUSHER.damage + ')', 'hazard');
+      }
+    }
+  }
+  else if (crusherPhase === 'slam' && crusherTimer >= t.slam) { crusherPhase = 'retract'; crusherTimer = 0; }
+  else if (crusherPhase === 'retract' && crusherTimer >= t.retract) { crusherPhase = 'idle'; crusherTimer = 0; }
+}
+
+function insideCrusher(x, y) {
+  return x > CRUSHER.x && x < CRUSHER.x + CRUSHER.w && y > CRUSHER.y && y < CRUSHER.y + CRUSHER.h;
+}
+
+function crusherCenter() {
+  return { x: CRUSHER.x + CRUSHER.w / 2, y: CRUSHER.y + CRUSHER.h / 2 };
+}
+
+// --- geometry helpers ---
+function norm360(d) { return ((d % 360) + 360) % 360; }
+function norm180(d) { d = norm360(d); return d > 180 ? d - 360 : d; }
+function bearingTo(from, to) {
+  return norm360(Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI);
+}
+function distance(a, b) { return Math.hypot(b.x - a.x, b.y - a.y); }
+
+// Build the plain-data sensor snapshot handed to Python. Everything here
+// must be a number, string, bool, list or dict - never an object with
+// methods, and never anything holding a JS reference.
+function buildSensors(b) {
+  const contacts = [];
+  for (const other of bots) {
+    if (other.id === b.id || !other.alive) continue;
+    const dist = distance(b, other);
+    if (dist > RADAR_RANGE) continue;
+    const bear = bearingTo(b, other);
+    const rel = Math.abs(norm180(bear - b.gunHeading));
+    if (rel > RADAR_HALF_ANGLE) continue;
+    contacts.push({
+      distance: Math.round(dist * 10) / 10,
+      bearing: Math.round(bear * 10) / 10,
+      chassis: other.chassisName,
+      team: other.id,
+    });
+  }
+  contacts.sort((p, q) => p.distance - q.distance);
+
+  // distance to the wall straight ahead
+  const rad = b.heading * Math.PI / 180;
+  let wallAhead = null;
+  for (let d = 10; d <= 300; d += 10) {
+    const px = b.x + Math.cos(rad) * d;
+    const py = b.y + Math.sin(rad) * d;
+    if (px < MARGIN || px > ARENA_W - MARGIN || py < MARGIN || py > ARENA_H - MARGIN) { wallAhead = d; break; }
+  }
+
+  const c = crusherCenter();
+  const hazard = {
+    kind: 'crusher',
+    distance: Math.round(Math.hypot(c.x - b.x, c.y - b.y) * 10) / 10,
+    bearing: Math.round(bearingTo(b, c) * 10) / 10,
+    dangerous: (crusherPhase === 'warn' || crusherPhase === 'slam'),
+    inside: insideCrusher(b.x, b.y),
+  };
+
+  return {
+    contacts,
+    health: Math.round(b.health),
+    speed: Math.round(b.speed * 100) / 100,
+    heading: Math.round(b.heading * 10) / 10,
+    gun_heading: Math.round(b.gunHeading * 10) / 10,
+    position: [Math.round(b.x), Math.round(b.y)],
+    wall_ahead: wallAhead,
+    time_alive: Math.round(tick / 30 * 10) / 10,
+    time_left: Math.round(Math.max(0, (MATCH_TICKS - tick) / 30) * 10) / 10,
+    hazard: hazard,
+    slicks_left: b.slicksLeft,
+    on_slick: b.onSlick,
+    weapons: b.weapons.slice(),
+    ready_weapons: b.weapons.filter(w => (b.cooldowns[w] || 0) <= 0),
+  };
+}
+
+// Whitelist + clamp every command. Python can request anything it likes;
+// nothing reaches the simulation without passing through here.
+function applyCommands(b, cmds, events) {
+  if (!Array.isArray(cmds)) return;
+  const ch = CHASSIS[b.chassisName];
+  let turnAccum = 0, gunAccum = 0, gunAbsolute = null;
+  let wantsFire = false;
+  const fireSpecific = [];
+
+  const limited = cmds.slice(0, MAX_COMMANDS_PER_TICK);
+
+  for (const cmd of limited) {
+    if (!Array.isArray(cmd) || typeof cmd[0] !== 'string') continue;
+    const name = cmd[0];
+    const arg = cmd[1];
+
+    if (name === 'drive') {
+      const v = Number(arg);
+      if (Number.isFinite(v)) b.speed = Math.max(-ch.maxSpeed, Math.min(ch.maxSpeed, v));
+    } else if (name === 'stop') {
+      b.speed = 0;
+    } else if (name === 'turn') {
+      const v = Number(arg);
+      if (Number.isFinite(v)) turnAccum += v;
+    } else if (name === 'turn_toward') {
+      const v = Number(arg);
+      if (Number.isFinite(v)) turnAccum += norm180(v - b.heading);
+    } else if (name === 'aim') {
+      const v = Number(arg);
+      if (Number.isFinite(v)) gunAccum += v;
+    } else if (name === 'aim_at') {
+      const v = Number(arg);
+      if (Number.isFinite(v)) gunAbsolute = v;
+    } else if (name === 'fire') {
+      wantsFire = true;
+    } else if (name === 'fire_weapon') {
+      if (typeof arg === 'string' && WEAPONS[arg]) fireSpecific.push(arg);
+    } else if (name === 'drop_oil_slick') {
+      if (b.slicksLeft > 0) {
+        b.slicksLeft--;
+        slicks.push({ x: b.x, y: b.y, born: tick, owner: b.id });
+        events.push({ botId: b.id, kind: 'hit', text: b.botName + ' dropped an oil slick (' + b.slicksLeft + ' left)' });
+      }
+    } else if (name === 'say') {
+      if (typeof arg === 'string' && arg.length) {
+        const said = arg.slice(0, 80);
+        events.push({ botId: b.id, kind: 'say', text: said });
+        // Also float it above the bot for ~2.5 seconds so it's visible
+        // in the arena, not just in the log.
+        b.sayText = said;
+        b.sayUntil = tick + 75;
+      }
+    }
+    // unknown command names are silently ignored
+  }
+
+  // Clamp turning to the chassis turn rate — reduced hard when sliding on oil
+  const effectiveTurnRate = ch.turnRate * b.gripMult;
+  const turnApplied = Math.max(-effectiveTurnRate, Math.min(effectiveTurnRate, turnAccum));
+  b.heading = norm360(b.heading + turnApplied);
+
+  // Gun: absolute aim wins over relative nudges, both rate-limited
+  let gunDelta = gunAbsolute !== null ? norm180(gunAbsolute - b.gunHeading) : gunAccum;
+  gunDelta = Math.max(-GUN_TURN_RATE, Math.min(GUN_TURN_RATE, gunDelta));
+  b.gunHeading = norm360(b.gunHeading + gunDelta);
+
+  if (wantsFire) tryFire(b, events, null);
+  for (const wname of fireSpecific) tryFire(b, events, wname);
+}
+
+function tryFire(b, events, onlyWeapon) {
+  for (const wname of b.weapons) {
+    if (onlyWeapon && wname !== onlyWeapon) continue;
+    const w = WEAPONS[wname];
+    if (!w || w.kind !== 'projectile') continue;
+    if ((b.cooldowns[wname] || 0) > 0) continue;
+    b.cooldowns[wname] = w.cooldown;
+    b.muzzleUntil = tick + 3;
+    for (let i = 0; i < w.pellets; i++) {
+      const spreadOffset = w.pellets > 1 ? (i - (w.pellets - 1) / 2) * w.spread : 0;
+      const ang = (b.gunHeading + spreadOffset) * Math.PI / 180;
+      projectiles.push({
+        id: nextProjId++,
+        owner: b.id,
+        x: b.x + Math.cos(ang) * (BOT_RADIUS + 4),
+        y: b.y + Math.sin(ang) * (BOT_RADIUS + 4),
+        vx: Math.cos(ang) * w.speed,
+        vy: Math.sin(ang) * w.speed,
+        damage: w.damage,
+        remaining: w.range,
+        weapon: wname,
+      });
+    }
+  }
+}
+
+function stepTick(forced) {
+  tick++;
+  const events = [];
+
+  // 0. Environment first: hazards advance, slicks expire, grip is recomputed
+  //    before any bot program runs, so what a bot senses matches what it hits.
+  updateCrusher(events);
+  slicks = slicks.filter(s => tick - s.born < SLICK.life);
+  for (const b of bots) {
+    if (!b.alive) { b.gripMult = 1; b.onSlick = false; continue; }
+    const on = slicks.some(s => Math.hypot(s.x - b.x, s.y - b.y) < SLICK.radius);
+    b.onSlick = on;
+    b.gripMult = on ? SLICK.grip : 1;
+  }
+
+  // 1. Run each bot's program under the instruction budget.
+  for (const b of bots) {
+    if (!b.alive || b.crashed || !b.onTick) continue;
+    let cmds = [];
+    try {
+      b.prepare(JSON.stringify(buildSensors(b)));
+      runWithBudget(b.onTick, INSTRUCTION_BUDGET, b.ns.get('bot'));
+      cmds = JSON.parse(b.collect());
+    } catch (err) {
+      const m = String(err && err.message ? err.message : err);
+      if (m.indexOf('BUDGET_EXCEEDED') !== -1) {
+        b.overBudgetUntil = tick + 20;
+        if (tick - b.lastBudgetWarnTick > 30) {
+          events.push({ botId: b.id, kind: 'budget', text: b.botName + ' is thinking too hard — tick skipped!' });
+          b.lastBudgetWarnTick = tick;
+        }
+      } else {
+        b.crashed = true;
+        events.push({ botId: b.id, kind: 'system', text: b.botName + ' crashed: ' + friendlyError(err) });
+      }
+      continue;
+    }
+    applyCommands(b, cmds, events);
+  }
+
+  // 2. Cooldowns (one per equipped weapon)
+  for (const b of bots) {
+    for (const wname in b.cooldowns) {
+      if (b.cooldowns[wname] > 0) b.cooldowns[wname]--;
+    }
+  }
+
+  // 3. Proposed movement (computed for all before any is applied, so
+  //    execution order confers no advantage)
+  const proposed = {};
+  for (const b of bots) {
+    if (!b.alive) { proposed[b.id] = { x: b.x, y: b.y }; continue; }
+    const rad = b.heading * Math.PI / 180;
+    proposed[b.id] = { x: b.x + Math.cos(rad) * b.speed, y: b.y + Math.sin(rad) * b.speed };
+  }
+
+  // 4. Walls
+  for (const b of bots) {
+    if (!b.alive) continue;
+    const p = proposed[b.id];
+    let hit = false;
+    if (p.x < MARGIN) { p.x = MARGIN; b.heading = norm360(180 - b.heading); hit = true; }
+    if (p.x > ARENA_W - MARGIN) { p.x = ARENA_W - MARGIN; b.heading = norm360(180 - b.heading); hit = true; }
+    if (p.y < MARGIN) { p.y = MARGIN; b.heading = norm360(-b.heading); hit = true; }
+    if (p.y > ARENA_H - MARGIN) { p.y = ARENA_H - MARGIN; b.heading = norm360(-b.heading); hit = true; }
+    if (hit) {
+      b.pendingWall = true;
+      const dmg = Math.round(Math.abs(b.speed) * 3.0);
+      if (dmg > 0) {
+        damage(b, dmg, null, events, b.botName + ' slammed into the wall (' + dmg + ')', 'wall');
+      }
+      b.speed *= 0.4;
+    }
+  }
+
+  // 5. Bot-vs-bot contact: separation, ram damage (asymmetric - the faster
+  //    bot deals more), and whisk blades grinding
+  for (let i = 0; i < bots.length; i++) {
+    for (let j = i + 1; j < bots.length; j++) {
+      const A = bots[i], B = bots[j];
+      if (!A.alive || !B.alive) continue;
+      const pa = proposed[A.id], pb = proposed[B.id];
+      const dx = pb.x - pa.x, dy = pb.y - pa.y;
+      const dist = Math.hypot(dx, dy) || 0.0001;
+      const minDist = BOT_RADIUS * 2;
+      if (dist >= minDist) continue;
+
+      const overlap = minDist - dist;
+      const nx = dx / dist, ny = dy / dist;
+      pa.x -= nx * overlap * 0.5; pa.y -= ny * overlap * 0.5;
+      pb.x += nx * overlap * 0.5; pb.y += ny * overlap * 0.5;
+
+      // Ram damage scales with each bot's own speed into the other,
+      // reduced by the victim's chassis ram resistance.
+      const aDmg = Math.round(Math.abs(A.speed) * 1.8 / CHASSIS[B.chassisName].ramResist);
+      const bDmg = Math.round(Math.abs(B.speed) * 1.8 / CHASSIS[A.chassisName].ramResist);
+      if (aDmg > 0) damage(B, aDmg, A, events, A.botName + ' rammed ' + B.botName + ' (' + aDmg + ')', 'ram');
+      if (bDmg > 0) damage(A, bDmg, B, events, B.botName + ' rammed ' + A.botName + ' (' + bDmg + ')', 'ram');
+
+      // Whisk blades: continuous grind while touching
+      for (const [attacker, victim] of [[A, B], [B, A]]) {
+        if (attacker.weapons.indexOf('whisk_blades') !== -1 && attacker.alive) {
+          damage(victim, WEAPONS.whisk_blades.damage, attacker, events, null, 'contact');
+        }
+      }
+
+      A.speed *= 0.35; B.speed *= 0.35;
+    }
+  }
+
+  // 6. Commit positions
+  for (const b of bots) { if (b.alive) { b.x = proposed[b.id].x; b.y = proposed[b.id].y; } }
+
+  // 7. Projectiles
+  const survivingProjectiles = [];
+  for (const p of projectiles) {
+    p.x += p.vx; p.y += p.vy;
+    p.remaining -= Math.hypot(p.vx, p.vy);
+    if (p.remaining <= 0) continue;
+    if (p.x < MARGIN || p.x > ARENA_W - MARGIN || p.y < MARGIN || p.y > ARENA_H - MARGIN) continue;
+
+    let consumed = false;
+    for (const b of bots) {
+      if (!b.alive || b.id === p.owner) continue;
+      if (Math.hypot(b.x - p.x, b.y - p.y) <= BOT_RADIUS) {
+        const shooter = bots.find(x => x.id === p.owner);
+        damage(b, p.damage, shooter, events, (shooter ? shooter.botName : '?') + ' hit ' + b.botName + ' (' + p.damage + ')', 'shot');
+        consumed = true;
+        break;
+      }
+    }
+    if (!consumed) survivingProjectiles.push(p);
+  }
+  projectiles = survivingProjectiles;
+
+  // 8. Deaths and win check
+  for (const b of bots) {
+    if (b.alive && b.health <= 0) {
+      b.alive = false; b.health = 0;
+      events.push({ botId: b.id, kind: 'system', text: b.botName + ' is destroyed!' });
+    }
+  }
+  const alive = bots.filter(b => b.alive);
+  let result = null;
+  if (alive.length === 1 && bots.some(b => !b.alive)) {
+    result = { type: 'win', winnerName: alive[0].botName, reason: 'destroyed the opposition' };
+  } else if (alive.length === 0) {
+    result = { type: 'draw', reason: 'everyone went down' };
+  } else if (tick >= MATCH_TICKS) {
+    // Time out: most damage dealt wins. A bot that dealt zero damage cannot
+    // win — this is what stops an all-defense turtle from stalling to victory.
+    const sorted = [...bots].sort((p, q) => q.damageDealt - p.damageDealt);
+    if (sorted[0].damageDealt <= 0) {
+      result = { type: 'draw', reason: "time's up — nobody landed a hit" };
+    } else if (Math.abs(sorted[0].damageDealt - sorted[1].damageDealt) < 0.5) {
+      result = { type: 'draw', reason: "time's up — damage dealt was tied" };
+    } else {
+      result = {
+        type: 'win', winnerName: sorted[0].botName,
+        reason: "time's up — most damage dealt (" + Math.round(sorted[0].damageDealt) + ")",
+      };
+    }
+  }
+  if (result) { matchOver = true; running = false; if (loopHandle) clearInterval(loopHandle); }
+
+  // 8b. Fire event handlers. These run AFTER all damage for the tick is
+  //     resolved, so a bot that took three hits gets one on_hit call with the
+  //     total, and bot.health inside the handler is already up to date.
+  //     Commands issued here land on the next tick's movement, which is what
+  //     makes bot.stop() inside on_hit actually stop the bot.
+  for (const b of bots) {
+    if (!b.alive || b.crashed) { b.pendingDamage = 0; b.pendingWall = false; b.pendingSource = null; continue; }
+    const tookDamage = b.pendingDamage > 0;
+    const hitWall = b.pendingWall;
+    if (!tookDamage && !hitWall) continue;
+
+    try {
+      b.prepare(JSON.stringify(buildSensors(b)));
+      if (tookDamage && b.onHitDispatch) {
+        runWithBudget(b.onHitDispatch, INSTRUCTION_BUDGET, Math.round(b.pendingDamage), b.pendingSource);
+      }
+      if (hitWall && b.onWallDispatch) {
+        runWithBudget(b.onWallDispatch, INSTRUCTION_BUDGET);
+      }
+      applyCommands(b, JSON.parse(b.collect()), events);
+    } catch (err) {
+      const m = String(err && err.message ? err.message : err);
+      if (m.indexOf('BUDGET_EXCEEDED') !== -1) {
+        b.overBudgetUntil = tick + 20;
+        if (tick - b.lastBudgetWarnTick > 30) {
+          events.push({ botId: b.id, kind: 'budget', text: b.botName + ' is thinking too hard in an event handler!' });
+          b.lastBudgetWarnTick = tick;
+        }
+      } else {
+        b.crashed = true;
+        events.push({ botId: b.id, kind: 'system', text: b.botName + ' crashed in a handler: ' + friendlyError(err) });
+      }
+    }
+    b.pendingDamage = 0; b.pendingWall = false; b.pendingSource = null;
+  }
+
+  // At high speed we don't need to paint every tick — throttle render frames
+  // but never drop the final frame of a match.
+  const shouldRender = forced || result || speedMult <= 4 || (tick % Math.ceil(speedMult / 3) === 0);
+  if (!shouldRender && events.length === 0) return;
+
+  self.postMessage({
+    type: 'tick',
+    tick,
+    timeLeft: Math.max(0, (MATCH_TICKS - tick) / 30),
+    crusher: {
+      x: CRUSHER.x, y: CRUSHER.y, w: CRUSHER.w, h: CRUSHER.h,
+      phase: crusherPhase,
+      progress: crusherTimer / (crusherTiming()[crusherPhase] || 1),
+      escalated: tick > MATCH_TICKS * 0.66,
+    },
+    slicks: slicks.map(s => ({ x: s.x, y: s.y, age: (tick - s.born) / SLICK.life, r: SLICK.radius })),
+    bots: bots.map(b => ({
+      id: b.id, x: b.x, y: b.y, heading: b.heading, gunHeading: b.gunHeading,
+      health: b.health, maxHealth: b.maxHealth, alive: b.alive, crashed: b.crashed,
+      chassis: b.chassisName, weapon: b.weapons[0] || null, weapons: b.weapons.slice(),
+      defenses: b.defenses.slice(), damageDealt: Math.round(b.damageDealt),
+      say: (b.sayUntil > tick) ? b.sayText : null,
+      overBudget: b.overBudgetUntil > tick,
+      firing: b.muzzleUntil > tick,
+      slicksLeft: b.slicksLeft,
+      onSlick: b.onSlick,
+    })),
+    projectiles: projectiles.map(p => ({
+      x: p.x, y: p.y, weapon: p.weapon,
+      angle: Math.atan2(p.vy, p.vx),
+    })),
+    events,
+    result,
+    radar: { range: RADAR_RANGE, halfAngle: RADAR_HALF_ANGLE },
+  });
+}
+
+function damage(victim, amount, attacker, events, text, kind) {
+  if (!victim.alive) return;
+
+  // Defenses. Bumper Guard only helps against impacts; Armor Plate helps
+  // against everything but never reduces a hit below 1.
+  let dealt = amount;
+  if ((kind === 'ram' || kind === 'wall') && victim.impactReduction > 0) {
+    dealt *= (1 - victim.impactReduction);
+  }
+  if (victim.armorFlat > 0) dealt -= victim.armorFlat;
+  dealt = Math.max(1, dealt);
+  if (amount <= 1) dealt = Math.min(dealt, amount);
+
+  victim.health = Math.max(0, victim.health - dealt);
+  victim.pendingDamage += dealt;
+  if (attacker) victim.pendingSource = attacker.botName;
+  if (attacker) attacker.damageDealt += dealt;
+  if (text) events.push({ botId: attacker ? attacker.id : victim.id, kind: 'hit', text });
+}
+`;
+
+// --- Main thread ----------------------------------------------------------
+
+const canvas = document.getElementById('arena');
+const ctx = canvas.getContext('2d');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const tickCounter = document.getElementById('tick-counter');
+const logEl = document.getElementById('log');
+const btnPause = document.getElementById('btn-pause');
+const btnLaunch = document.getElementById('btn-launch');
+const btnRunaway = document.getElementById('btn-runaway');
+const btnEscape = document.getElementById('btn-escape');
+const codeA = document.getElementById('code-a');
+const codeB = document.getElementById('code-b');
+const winBanner = document.getElementById('win-banner');
+const winBig = document.getElementById('win-big');
+const winSmall = document.getElementById('win-small');
+const winStats = document.getElementById('win-stats');
+const btnRematch = document.getElementById('btn-rematch');
+const showRadar = document.getElementById('show-radar');
+const speedSelect = document.getElementById('speed-select');
+const btnStep = document.getElementById('btn-step');
+const timerEl = document.getElementById('timer');
+const fileInput = document.getElementById('file-input');
+let pendingLoadTarget = null;
+
+const ui = {
+  a: { name: document.getElementById('name-a'), meta: document.getElementById('meta-a'), fill: document.getElementById('hbfill-a'), status: document.getElementById('hbstatus-a') },
+  b: { name: document.getElementById('name-b'), meta: document.getElementById('meta-b'), fill: document.getElementById('hbfill-b'), status: document.getElementById('hbstatus-b') },
+};
+
+codeA.value = DEFAULT_CODE_A;
+codeB.value = DEFAULT_CODE_B;
+
+let worker = null;
+let isPaused = false;
+let names = { a: 'Bot A', b: 'Bot B' };
+let radarCfg = { range: 340, halfAngle: 50 };
+let view = {
+  bots: [
+    { id: 'a', x: ARENA_W * 0.22, y: ARENA_H * 0.5, heading: 0, gunHeading: 0, health: 100, maxHealth: 100, alive: true, crashed: false },
+    { id: 'b', x: ARENA_W * 0.78, y: ARENA_H * 0.5, heading: 180, gunHeading: 180, health: 100, maxHealth: 100, alive: true, crashed: false },
+  ],
+  projectiles: [],
+  slicks: [],
+  crusher: { x: 330, y: 175, w: 145, h: 150, phase: 'idle', progress: 0, escalated: false },
+};
+
+const COLORS = { a: '#5aa9e6', b: '#e35d5d' };
+
+function setStatus(state, text) { statusDot.className = 'dot ' + state; statusText.textContent = text; }
+
+function addLog(botId, kind, text) {
+  const el = document.createElement('div');
+  el.className = 'entry ' + (botId || '') + ' ' + kind;
+  if (botId && kind === 'say') {
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = names[botId] + ': ';
+    el.appendChild(who);
+    el.appendChild(document.createTextNode(text));
+  } else {
+    el.textContent = (kind === 'budget' ? '⚠ ' : '') + text;
+  }
+  logEl.appendChild(el);
+  while (logEl.children.length > 220) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function startWorker() {
+  if (worker) worker.terminate();
+  winBanner.classList.remove('show');
+  isPaused = false;
+  btnPause.textContent = 'Pause';
+  btnPause.disabled = true;
+  logEl.innerHTML = '';
+  view.projectiles = [];
+
+  const blob = new Blob([WORKER_SOURCE], { type: 'application/javascript' });
+  worker = new Worker(URL.createObjectURL(blob));
+
+  worker.onmessage = (e) => {
+    const msg = e.data;
+
+    if (msg.type === 'status') {
+      setStatus(msg.state, msg.text);
+      if (msg.state === 'running' || msg.state === 'paused') btnPause.disabled = false;
+    }
+
+    if (msg.type === 'ready') {
+      for (const b of msg.bots) {
+        names[b.id] = b.name;
+        ui[b.id].name.textContent = b.name;
+        const parts = (b.weapons || []).concat(b.defenses || []);
+        ui[b.id].meta.textContent = b.chassis + (parts.length ? ' · ' + parts.join(', ') : ' · unarmed');
+      }
+      for (const err of msg.setupErrors) addLog(err.botId, 'system', names[err.botId] + ': ' + err.text);
+      // on_start messages (including the escape-attempt result) land here
+      for (const ev of (msg.startEvents || [])) addLog(ev.botId, ev.kind, ev.text);
+      for (const s of (msg.says || [])) {
+        const vb = view.bots.find(x => x.id === s.id);
+        if (vb && s.text) vb.say = s.text;
+      }
+    }
+
+    if (msg.type === 'tick') {
+      tickCounter.textContent = 'tick: ' + msg.tick;
+      view.bots = msg.bots;
+      view.projectiles = msg.projectiles;
+      if (msg.slicks) view.slicks = msg.slicks;
+      if (msg.crusher) view.crusher = msg.crusher;
+      radarCfg = msg.radar;
+
+      if (typeof msg.timeLeft === 'number') {
+        const mins = Math.floor(msg.timeLeft / 60);
+        const secs = Math.floor(msg.timeLeft % 60);
+        timerEl.textContent = mins + ':' + String(secs).padStart(2, '0');
+        timerEl.className = 'timer' + (msg.timeLeft <= 30 ? ' urgent' : '');
+      }
+
+      for (const b of msg.bots) {
+        const pct = b.maxHealth ? (b.health / b.maxHealth) * 100 : 0;
+        ui[b.id].fill.style.width = pct + '%';
+        ui[b.id].status.textContent = b.crashed ? 'crashed' : (b.alive ? Math.round(b.health) + ' hp' : 'destroyed');
+        ui[b.id].status.className = 'hb-status ' + (b.crashed ? 'crashed' : (b.alive ? '' : 'dead'));
+      }
+
+      for (const ev of msg.events) addLog(ev.botId, ev.kind, ev.text);
+
+      if (msg.result) {
+        setStatus('ended', 'Match over');
+        btnPause.disabled = true;
+        winBanner.classList.add('show');
+        if (msg.result.type === 'win') {
+          winBig.textContent = msg.result.winnerName + ' wins!';
+          winSmall.textContent = msg.result.reason || 'Edit some code, then rematch';
+        } else {
+          winBig.textContent = "It's a draw!";
+          winSmall.textContent = msg.result.reason || 'Both bots went down';
+        }
+
+        // A quick scoreboard so a rematch has something to beat
+        winStats.innerHTML = msg.bots.map(b =>
+          '<span class="s ' + b.id + '"><span class="k">' + (names[b.id] || 'Bot') +
+          ' dealt </span><span class="v">' + (b.damageDealt || 0) + '</span></span>'
+        ).join('');
+
+        // Let the kid just hit Enter or Space to go again
+        setTimeout(() => btnRematch.focus(), 60);
+      }
+    }
+  };
+
+  worker.postMessage({ type: 'init', codes: { a: codeA.value, b: codeB.value } });
+  worker.postMessage({ type: 'speed', multiplier: Number(speedSelect.value) });
+  btnStep.disabled = true;
+  timerEl.textContent = '1:30';
+  timerEl.className = 'timer';
+}
+
+function drawArena() {
+  ctx.clearRect(0, 0, ARENA_W, ARENA_H);
+
+  ctx.strokeStyle = '#2f3542'; ctx.lineWidth = 1;
+  for (let x = 0; x <= ARENA_W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ARENA_H); ctx.stroke(); }
+  for (let y = 0; y <= ARENA_H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(ARENA_W, y); ctx.stroke(); }
+
+  ctx.strokeStyle = '#3a4152'; ctx.lineWidth = 2;
+  ctx.strokeRect(WALL_MARGIN, WALL_MARGIN, ARENA_W - WALL_MARGIN * 2, ARENA_H - WALL_MARGIN * 2);
+
+  drawCrusher();
+  for (const s of view.slicks) drawSlick(s);
+
+  if (showRadar.checked) for (const b of view.bots) if (b.alive) drawRadar(b);
+  for (const p of view.projectiles) drawProjectile(p);
+  for (const b of view.bots) drawBot(b);
+}
+
+function drawCrusher() {
+  const c = view.crusher;
+  if (!c) return;
+  ctx.save();
+
+  // Hazard-striped floor plate, always visible so bots can be baited onto it
+  ctx.fillStyle = '#20242e';
+  ctx.fillRect(c.x, c.y, c.w, c.h);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(c.x, c.y, c.w, c.h); ctx.clip();
+  ctx.strokeStyle = 'rgba(242,165,65,0.16)';
+  ctx.lineWidth = 10;
+  for (let i = -c.h; i < c.w + c.h; i += 26) {
+    ctx.beginPath(); ctx.moveTo(c.x + i, c.y); ctx.lineTo(c.x + i - c.h, c.y + c.h); ctx.stroke();
+  }
+  ctx.restore();
+
+  let border = '#4a5263', glow = null;
+  if (c.phase === 'warn') {
+    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(performance.now() / 90));
+    border = 'rgba(242,165,65,' + pulse.toFixed(2) + ')';
+    glow = 'rgba(242,165,65,0.10)';
+  } else if (c.phase === 'slam') {
+    border = '#ffffff';
+    glow = 'rgba(227,93,93,0.45)';
+  } else if (c.phase === 'retract') {
+    border = 'rgba(227,93,93,0.5)';
+    glow = 'rgba(227,93,93,0.12)';
+  }
+  if (glow) { ctx.fillStyle = glow; ctx.fillRect(c.x, c.y, c.w, c.h); }
+
+  ctx.strokeStyle = border;
+  ctx.lineWidth = c.phase === 'slam' ? 5 : 3;
+  ctx.strokeRect(c.x, c.y, c.w, c.h);
+
+  // The plate itself: descends during warn, lands on slam, lifts on retract
+  let inset = 14;
+  if (c.phase === 'warn') inset = 14 * (1 - c.progress);
+  else if (c.phase === 'slam') inset = 0;
+  else if (c.phase === 'retract') inset = 14 * c.progress;
+
+  if (c.phase !== 'idle') {
+    ctx.strokeStyle = c.phase === 'slam' ? '#f5f2ea' : 'rgba(201,209,217,0.55)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(c.x + inset, c.y + inset, c.w - inset * 2, c.h - inset * 2);
+  }
+
+  ctx.fillStyle = c.phase === 'slam' ? '#ffffff' : 'rgba(154,162,177,0.75)';
+  ctx.font = '600 11px "JetBrains Mono", monospace';
+  ctx.textAlign = 'center';
+  const label = c.phase === 'warn' ? 'CRUSHER ARMING' : (c.phase === 'slam' ? 'SLAM!' : 'CRUSHER');
+  ctx.fillText(label + (c.escalated ? ' FAST' : ''), c.x + c.w / 2, c.y + c.h / 2 + 4);
+
+  ctx.restore();
+}
+
+function drawSlick(s) {
+  ctx.save();
+  const fade = 1 - s.age * 0.6;
+  ctx.globalAlpha = Math.max(0.15, fade);
+  ctx.fillStyle = '#12151c';
+  ctx.beginPath();
+  ctx.ellipse(s.x, s.y, s.r, s.r * 0.78, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // oily sheen
+  ctx.globalAlpha = Math.max(0.08, fade * 0.35);
+  ctx.fillStyle = '#6f7fd0';
+  ctx.beginPath();
+  ctx.ellipse(s.x - s.r * 0.22, s.y - s.r * 0.2, s.r * 0.45, s.r * 0.26, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawRadar(b) {
+  const half = radarCfg.halfAngle * Math.PI / 180;
+  const g = b.gunHeading * Math.PI / 180;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(b.x, b.y);
+  ctx.arc(b.x, b.y, radarCfg.range, g - half, g + half);
+  ctx.closePath();
+  ctx.fillStyle = COLORS[b.id] + '12';
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawProjectile(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.angle || 0);
+
+  if (p.weapon === 'nail_gun') {
+    // A long steel nail: thin streak with a flat head
+    ctx.strokeStyle = '#dfe6ef';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(6, 0); ctx.stroke();
+    ctx.fillStyle = '#f2f6fb';
+    ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(2, -2.5); ctx.lineTo(2, 2.5); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(223,230,239,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(-9, 0); ctx.stroke();
+  } else if (p.weapon === 'bolt_blaster') {
+    // A glowing energy bolt with a soft halo
+    ctx.fillStyle = 'rgba(122, 208, 255, 0.22)';
+    ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#7fd0e8';
+    roundRect(ctx, -5, -2.5, 11, 5, 2.5); ctx.fill();
+    ctx.fillStyle = '#eafaff';
+    roundRect(ctx, -1, -1.2, 5, 2.4, 1.2); ctx.fill();
+  } else if (p.weapon === 'crumb_cannon') {
+    // Irregular toasted crumbs, deliberately scruffy
+    ctx.fillStyle = '#e8a35c';
+    ctx.beginPath();
+    ctx.moveTo(3, 0); ctx.lineTo(0.5, 2.6); ctx.lineTo(-2.6, 1.4);
+    ctx.lineTo(-2, -1.8); ctx.lineTo(1, -2.4);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#c9813f';
+    ctx.beginPath(); ctx.arc(-0.5, 0.4, 1, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = '#f2e6c4';
+    ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// Each weapon gets its own barrel silhouette, so you can tell at a glance
+// what a bot is carrying without reading the loadout.
+function drawWeapon(b, color) {
+  // A bot can carry several weapons now — draw each one, fanned slightly so
+  // a double-barrelled loadout is visibly different from a single.
+  const list = (b.weapons && b.weapons.length) ? b.weapons : (b.weapon ? [b.weapon] : []);
+  const fan = list.length > 1 ? 11 : 0;
+  list.forEach((wname, idx) => {
+    const offset = fan ? (idx - (list.length - 1) / 2) * fan : 0;
+    drawOneWeapon(b, wname, offset);
+  });
+}
+
+function drawOneWeapon(b, weapon, angleOffset) {
+  const spin = performance.now() / 1000;
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate((b.gunHeading + angleOffset) * Math.PI / 180);
+
+  if (weapon === 'whisk_blades') {
+    // No barrel at all — two spinning whisk loops out front
+    ctx.strokeStyle = '#dfe6ef';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(16, 0); ctx.stroke();
+    ctx.save();
+    ctx.translate(22, 0);
+    ctx.rotate(spin * 14);
+    for (let i = 0; i < 4; i++) {
+      ctx.save();
+      ctx.rotate((i * Math.PI) / 2);
+      ctx.strokeStyle = i % 2 ? '#aeb8c6' : '#e6ecf4';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9, 4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  } else if (weapon === 'nail_gun') {
+    // Long, thin sniper barrel with a slim scope
+    ctx.fillStyle = '#aeb8c6';
+    roundRect(ctx, 4, -2, 30, 4, 1.5); ctx.fill();
+    ctx.fillStyle = '#6f7a8a';
+    roundRect(ctx, 10, -5.5, 12, 3, 1.5); ctx.fill();
+    ctx.fillStyle = '#dfe6ef';
+    roundRect(ctx, 32, -2.5, 3, 5, 1); ctx.fill();
+  } else if (weapon === 'crumb_cannon') {
+    // Short, wide blunderbuss funnel
+    ctx.fillStyle = '#c9813f';
+    ctx.beginPath();
+    ctx.moveTo(4, -3.5); ctx.lineTo(17, -9); ctx.lineTo(17, 9); ctx.lineTo(4, 3.5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#8a5b2c'; ctx.lineWidth = 1.5; ctx.stroke();
+  } else {
+    // Bolt blaster: boxy mid-length barrel with an emitter tip
+    ctx.fillStyle = '#8b93a1';
+    roundRect(ctx, 4, -3, 20, 6, 2); ctx.fill();
+    ctx.fillStyle = '#7fd0e8';
+    roundRect(ctx, 22, -3.5, 4, 7, 2); ctx.fill();
+  }
+
+  // Muzzle flash on the tick a shot leaves the barrel
+  if (b.firing && weapon !== 'whisk_blades') {
+    const tipX = weapon === 'nail_gun' ? 36 : (weapon === 'crumb_cannon' ? 19 : 27);
+    const size = weapon === 'crumb_cannon' ? 11 : 7;
+    ctx.fillStyle = weapon === 'bolt_blaster' ? 'rgba(127,208,232,0.75)' : 'rgba(242,165,65,0.8)';
+    ctx.beginPath();
+    ctx.moveTo(tipX, 0);
+    ctx.lineTo(tipX + size, -size * 0.5);
+    ctx.lineTo(tipX + size * 0.6, 0);
+    ctx.lineTo(tipX + size, size * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawBot(b) {
+  const color = COLORS[b.id];
+
+  if (!b.alive) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.45; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-11, -11); ctx.lineTo(11, 11); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11, -11); ctx.lineTo(-11, 11); ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  // Weapon, drawn under the body so the body still reads as the bot
+  drawWeapon(b, color);
+
+  // Body — each chassis looks like the appliance it is
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.heading * Math.PI / 180);
+  ctx.fillStyle = b.crashed ? '#6b7280' : color;
+  ctx.strokeStyle = '#8b93a1';
+  ctx.lineWidth = 2;
+
+  if (b.chassis === 'roomba') {
+    // Round vacuum disc with a bumper arc
+    ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#2b3140'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, 15, -0.9, 0.9); ctx.stroke();
+    ctx.fillStyle = '#2b3140';
+    ctx.beginPath(); ctx.arc(-4, 0, 3.5, 0, Math.PI * 2); ctx.fill();
+  } else if (b.chassis === 'fridge') {
+    // Tall boxy fridge with a door seam and handle
+    roundRect(ctx, -13, -17, 26, 34, 4); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#2b3140'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-13, -2); ctx.lineTo(13, -2); ctx.stroke();
+    ctx.fillStyle = '#e6e9ef';
+    roundRect(ctx, 6, -14, 3, 9, 1.5); ctx.fill();
+    roundRect(ctx, 6, 2, 3, 11, 1.5); ctx.fill();
+  } else {
+    // Toaster: body plus two slices poking out
+    roundRect(ctx, -15, -12, 30, 24, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e8a35c';
+    roundRect(ctx, -9, -19, 7, 9, 2); ctx.fill();
+    roundRect(ctx, 2, -19, 7, 9, 2); ctx.fill();
+    ctx.fillStyle = '#2b3140';
+    roundRect(ctx, -11, 2, 8, 3, 1.5); ctx.fill();
+  }
+  ctx.restore();
+
+  // Floating health pip
+  const pct = b.maxHealth ? b.health / b.maxHealth : 0;
+  ctx.save();
+  ctx.fillStyle = '#1a1e27';
+  ctx.fillRect(b.x - 16, b.y - 32, 32, 4);
+  ctx.fillStyle = pct > 0.35 ? color : '#e35d5d';
+  ctx.fillRect(b.x - 16, b.y - 32, 32 * pct, 4);
+  ctx.restore();
+
+  // Sliding on oil — shows why the bot suddenly can't steer
+  if (b.onSlick) {
+    ctx.save();
+    ctx.strokeStyle = '#6f7fd0';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath(); ctx.arc(b.x, b.y, 21, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // "Thinking too hard" indicator — makes a stalled bot legible at a glance
+  if (b.overBudget) {
+    ctx.save();
+    ctx.fillStyle = '#e35d5d';
+    ctx.font = 'bold 20px "Space Grotesk", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', b.x, b.y - 38);
+    ctx.restore();
+  }
+
+  // Speech bubble
+  if (b.say) drawSpeechBubble(b.x, b.y - (b.overBudget ? 58 : 42), b.say, color);
+}
+
+function drawSpeechBubble(x, y, text, color) {
+  ctx.save();
+  ctx.font = '600 12px "JetBrains Mono", monospace';
+  const padX = 8, padY = 5;
+  const w = Math.min(ctx.measureText(text).width, 260) + padX * 2;
+  const h = 22;
+  let bx = x - w / 2;
+  bx = Math.max(4, Math.min(ARENA_W - w - 4, bx));
+  const by = Math.max(4, y - h);
+
+  ctx.fillStyle = 'rgba(26, 30, 39, 0.92)';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, bx, by, w, h, 6);
+  ctx.fill(); ctx.stroke();
+
+  // little tail pointing at the bot
+  ctx.beginPath();
+  ctx.moveTo(x - 5, by + h);
+  ctx.lineTo(x + 5, by + h);
+  ctx.lineTo(x, by + h + 6);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(26, 30, 39, 0.92)';
+  ctx.fill();
+
+  ctx.fillStyle = '#f5f2ea';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, bx + w / 2, by + h / 2, w - padX * 2);
+  ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function renderLoop() { drawArena(); requestAnimationFrame(renderLoop); }
+
+btnPause.addEventListener('click', () => {
+  if (!worker) return;
+  isPaused = !isPaused;
+  worker.postMessage({ type: isPaused ? 'pause' : 'resume' });
+  btnPause.textContent = isPaused ? 'Resume' : 'Pause';
+  btnStep.disabled = !isPaused;
+});
+btnStep.addEventListener('click', () => { if (worker) worker.postMessage({ type: 'step' }); });
+speedSelect.addEventListener('change', () => {
+  if (worker) worker.postMessage({ type: 'speed', multiplier: Number(speedSelect.value) });
+});
+btnRematch.addEventListener('click', () => {
+  if (blockedLaunch.a || blockedLaunch.b) {
+    const who = blockedLaunch.a ? 'Bot A' : 'Bot B';
+    addLog(null, 'system', who + " has a Python block with a problem — fix the red block first.");
+    return;
+  }
+  startWorker();
+});
+
+btnLaunch.addEventListener('click', () => {
+  if (blockedLaunch.a || blockedLaunch.b) {
+    const who = blockedLaunch.a ? 'Bot A' : 'Bot B';
+    addLog(null, 'system', who + " has a Python block with a problem — fix the red block first.");
+    return;
+  }
+  startWorker();
+});
+btnRunaway.addEventListener('click', () => {
+  codeB.value = RUNAWAY_CODE; syncGarageFromCode('b'); loadPythonIntoBlocks('b'); setMode('b','blocks');
+});
+btnEscape.addEventListener('click', () => {
+  codeB.value = ESCAPE_CODE; syncGarageFromCode('b'); loadPythonIntoBlocks('b'); setMode('b','blocks');
+});
+
+// --- Save / load .bot.py files -------------------------------------------
+// Works straight from a double-clicked file:// page — no server needed.
+
+function botNameFromCode(code) {
+  const m = code.match(/BOT_NAME\s*=\s*["']([^"']+)["']/);
+  const raw = m ? m[1] : 'unnamed';
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed';
+}
+
+document.querySelectorAll('[data-save]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const which = btn.getAttribute('data-save');
+    let code = which === 'a' ? codeA.value : codeB.value;
+    // Blocks mode: stash the workspace XML in a trailing comment so the file
+    // reopens as blocks exactly as it was left.
+    if (editorMode[which] === 'blocks' && workspaces[which]) {
+      const dom = Blockly.Xml.workspaceToDom(workspaces[which]);
+      const xml = Blockly.Xml.domToText(dom);
+      code += '\n\n# --- BLOCKLY XML (do not edit by hand) ---\n# ' + xml + '\n';
+    }
+    const blob = new Blob([code], { type: 'text/x-python' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = botNameFromCode(code) + '.bot.py';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+});
+
+document.querySelectorAll('[data-load]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    pendingLoadTarget = btn.getAttribute('data-load');
+    fileInput.value = '';
+    fileInput.click();
+  });
+});
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files && fileInput.files[0];
+  if (!file || !pendingLoadTarget) return;
+  if (file.size > 200 * 1024) {
+    addLog(null, 'system', 'That file is too big to be a bot (over 200KB).');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result);
+    // A .bot.py is untrusted executable code: it is loaded into the editor
+    // for the person to see, and only ever runs when they click Launch.
+    const which = pendingLoadTarget;
+    const xmlMatch = text.match(/# --- BLOCKLY XML \(do not edit by hand\) ---\n# (.*)/);
+    const pyOnly = text.replace(/\n*# --- BLOCKLY XML[\s\S]*$/, '\n');
+
+    if (which === 'a') codeA.value = pyOnly; else codeB.value = pyOnly;
+    syncGarageFromCode(which);
+
+    if (xmlMatch && workspaces[which]) {
+      // Saved blocks travel with the file — restore them exactly.
+      try {
+        suppressSync = true;
+        workspaces[which].clear();
+        Blockly.Xml.domToWorkspace(Blockly.utils.xml.textToDom(xmlMatch[1]), workspaces[which]);
+        suppressSync = false;
+        setMode(which, 'blocks');
+      } catch (err) {
+        suppressSync = false;
+        loadPythonIntoBlocks(which);
+        setMode(which, 'blocks');
+      }
+    } else {
+      // No saved blocks: parse the Python so it still opens as blocks.
+      loadPythonIntoBlocks(which);
+      setMode(which, 'blocks');
+    }
+
+    addLog(null, 'system', 'Loaded ' + file.name + ' into Bot ' + which.toUpperCase() + ' — click Launch Battle to run it.');
+    pendingLoadTarget = null;
+  };
+  reader.onerror = () => { addLog(null, 'system', "Couldn't read that file."); };
+  reader.readAsText(file);
+});
+
+// --- Blockly: block definitions ------------------------------------------
+// Every block maps one-to-one onto the bot API, so the generated Python is
+// exactly what a kid would write by hand. That correspondence is the whole
+// pedagogical point — they read the right-hand pane and learn the syntax.
+
+// --- Block colours -------------------------------------------------------
+// Blockly renders block labels in white, so every one of these is chosen to
+// clear WCAG AAA (>=7:1) against #ffffff — the original brighter palette was
+// as low as 2.0:1, which was genuinely hard to read. Hues are spread around
+// the wheel so the categories stay tellable apart at a glance.
+const HAT_COLOUR = '#735307';     // gold      7.07:1
+const MOVE_COLOUR = '#0859a0';    // blue      7.13:1
+const GUN_COLOUR = '#ae1328';     // red       7.18:1
+const SENSE_COLOUR = '#05662e';   // green     7.13:1
+const ACTION_COLOUR = '#923d0c';  // orange    7.25:1
+const PYBLOCK_COLOUR = '#891bc0'; // purple    7.04:1
+const LOGIC_COLOUR = '#4d596f';   // slate     7.06:1
+const NUM_COLOUR = '#07606e';     // teal      7.22:1
+const VAR_COLOUR = '#a11777';     // magenta   7.23:1
+const BAD_COLOUR = '#b3111f';     // invalid block
+
+function defineBlocks() {
+  const B = Blockly.Blocks;
+
+  // --- Event hats ---
+  B['bb_on_start'] = { init() {
+    this.appendDummyInput().appendField('when battle starts');
+    this.appendStatementInput('BODY').setCheck(null);
+    this.setColour(HAT_COLOUR); this.setTooltip('Runs once at the start.');
+  }};
+  B['bb_on_tick'] = { init() {
+    this.appendDummyInput().appendField('every tick');
+    this.appendStatementInput('BODY').setCheck(null);
+    this.setColour(HAT_COLOUR); this.setTooltip('Runs 30 times a second.');
+  }};
+  B['bb_on_hit'] = { init() {
+    this.appendDummyInput().appendField('when I get hit');
+    this.appendStatementInput('BODY').setCheck(null);
+    this.setColour(HAT_COLOUR); this.setTooltip('Runs when this bot takes damage.');
+  }};
+  B['bb_on_wall'] = { init() {
+    this.appendDummyInput().appendField('when I hit a wall');
+    this.appendStatementInput('BODY').setCheck(null);
+    this.setColour(HAT_COLOUR);
+  }};
+
+  // --- Movement ---
+  B['bb_drive'] = { init() {
+    this.appendValueInput('SPEED').setCheck(null).appendField('drive at speed');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(MOVE_COLOUR);
+  }};
+  B['bb_turn'] = { init() {
+    this.appendValueInput('DEG').setCheck(null).appendField('turn');
+    this.appendDummyInput().appendField('degrees');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(MOVE_COLOUR);
+  }};
+  B['bb_turn_toward'] = { init() {
+    this.appendValueInput('BEARING').setCheck(null).appendField('turn toward');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(MOVE_COLOUR);
+  }};
+  B['bb_stop'] = { init() {
+    this.appendDummyInput().appendField('stop moving');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(MOVE_COLOUR);
+  }};
+
+  // --- Gun ---
+  B['bb_aim'] = { init() {
+    this.appendValueInput('DEG').setCheck(null).appendField('swing gun');
+    this.appendDummyInput().appendField('degrees');
+    this.setInputsInline(true);
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(GUN_COLOUR);
+  }};
+  B['bb_aim_target'] = { init() {
+    this.appendDummyInput().appendField('point gun at target');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(GUN_COLOUR);
+  }};
+  B['bb_fire'] = { init() {
+    this.appendDummyInput().appendField('FIRE!');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(GUN_COLOUR);
+  }};
+
+  // --- Sensing ---
+  B['bb_see_enemy'] = { init() {
+    this.appendDummyInput().appendField('I can see someone');
+    this.setOutput(true, null); this.setColour(SENSE_COLOUR);
+  }};
+  B['bb_target_distance'] = { init() {
+    this.appendDummyInput().appendField("target's distance");
+    this.setOutput(true, null); this.setColour(SENSE_COLOUR);
+  }};
+  B['bb_target_bearing'] = { init() {
+    this.appendDummyInput().appendField("target's direction");
+    this.setOutput(true, null); this.setColour(SENSE_COLOUR);
+  }};
+  B['bb_my_health'] = { init() {
+    this.appendDummyInput().appendField('my health');
+    this.setOutput(true, null); this.setColour(SENSE_COLOUR);
+  }};
+  B['bb_slicks_left'] = { init() {
+    this.appendDummyInput().appendField('oil slicks left');
+    this.setOutput(true, null); this.setColour(SENSE_COLOUR);
+  }};
+  B['bb_crusher_danger'] = { init() {
+    this.appendDummyInput()
+      .appendField(new Blockly.FieldDropdown([
+        ['crusher is about to slam', 'dangerous'],
+        ["I'm standing on the crusher", 'inside'],
+        ["I'm sliding on oil", 'onslick'],
+      ]), 'WHICH');
+    this.setOutput(true, null); this.setColour(SENSE_COLOUR);
+  }};
+
+  // --- Actions ---
+  B['bb_drop_slick'] = { init() {
+    this.appendDummyInput().appendField('drop oil slick');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(ACTION_COLOUR);
+  }};
+  B['bb_say'] = { init() {
+    this.appendValueInput('TEXT').setCheck(null).appendField('say');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(ACTION_COLOUR);
+  }};
+  B['bb_skip_rest'] = { init() {
+    this.appendDummyInput().appendField('skip the rest of this tick');
+    this.setPreviousStatement(true);
+    this.setColour(ACTION_COLOUR);
+    this.setTooltip('Stops here and waits for the next tick.');
+  }};
+
+  // --- The Python Block: holds code the blocks can't express ---
+  B['bb_python'] = { init() {
+    this.appendDummyInput().appendField('Python');
+    this.appendDummyInput().appendField(new Blockly.FieldMultilineInput('bot.drive(3)'), 'CODE');
+    this.setPreviousStatement(true); this.setNextStatement(true);
+    this.setColour(PYBLOCK_COLOUR);
+    this.setTooltip("Raw Python. Anything the other blocks can't do goes here.");
+  }};
+}
+
+// --- Python generation ---------------------------------------------------
+
+function genValue(block) {
+  if (!block) return '0';
+  const t = block.type;
+  if (t === 'bb_see_enemy') return '_targets';
+  if (t === 'bb_target_distance') return '(_targets[0]["distance"] if _targets else 9999)';
+  if (t === 'bb_target_bearing') return '(_targets[0]["bearing"] if _targets else 0)';
+  if (t === 'bb_my_health') return 'bot.health';
+  if (t === 'bb_slicks_left') return 'bot.slicks_left';
+  if (t === 'bb_crusher_danger') {
+    const w = block.getFieldValue('WHICH');
+    if (w === 'dangerous') return '(_hazard and _hazard["dangerous"])';
+    if (w === 'inside') return '(_hazard and _hazard["inside"])';
+    return 'bot.on_slick';
+  }
+  if (t === 'math_number') return String(block.getFieldValue('NUM'));
+  if (t === 'text') return JSON.stringify(block.getFieldValue('TEXT'));
+  if (t === 'logic_boolean') return block.getFieldValue('BOOL') === 'TRUE' ? 'True' : 'False';
+  if (t === 'logic_compare') {
+    const ops = { EQ: '==', NEQ: '!=', LT: '<', LTE: '<=', GT: '>', GTE: '>=' };
+    const a = genValue(block.getInputTargetBlock('A'));
+    const b = genValue(block.getInputTargetBlock('B'));
+    return '(' + a + ' ' + ops[block.getFieldValue('OP')] + ' ' + b + ')';
+  }
+  if (t === 'logic_operation') {
+    const op = block.getFieldValue('OP') === 'AND' ? 'and' : 'or';
+    const a = genValue(block.getInputTargetBlock('A'));
+    const b = genValue(block.getInputTargetBlock('B'));
+    return '(' + a + ' ' + op + ' ' + b + ')';
+  }
+  if (t === 'logic_negate') {
+    return '(not ' + genValue(block.getInputTargetBlock('BOOL')) + ')';
+  }
+  if (t === 'math_arithmetic') {
+    const ops = { ADD: '+', MINUS: '-', MULTIPLY: '*', DIVIDE: '/', POWER: '**' };
+    const a = genValue(block.getInputTargetBlock('A'));
+    const b = genValue(block.getInputTargetBlock('B'));
+    return '(' + a + ' ' + ops[block.getFieldValue('OP')] + ' ' + b + ')';
+  }
+  if (t === 'variables_get') return sanitizeVar(block.getField('VAR').getText());
+  return '0';
+}
+
+function sanitizeVar(name) {
+  const clean = String(name).trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^[^a-z_]+/, '');
+  return clean || 'my_value';
+}
+
+function genStatements(block, indent) {
+  const pad = '    '.repeat(indent);
+  let out = '';
+  let cur = block;
+  while (cur) {
+    out += genStatement(cur, indent);
+    cur = cur.getNextBlock();
+  }
+  return out;
+}
+
+function genStatement(block, indent) {
+  const pad = '    '.repeat(indent);
+  const t = block.type;
+
+  if (t === 'bb_drive') return pad + 'bot.drive(' + genValue(block.getInputTargetBlock('SPEED')) + ')\n';
+  if (t === 'bb_turn') return pad + 'bot.turn(' + genValue(block.getInputTargetBlock('DEG')) + ')\n';
+  if (t === 'bb_turn_toward') return pad + 'bot.turn_toward(' + genValue(block.getInputTargetBlock('BEARING')) + ')\n';
+  if (t === 'bb_stop') return pad + 'bot.stop()\n';
+  if (t === 'bb_aim') return pad + 'bot.aim(' + genValue(block.getInputTargetBlock('DEG')) + ')\n';
+  if (t === 'bb_aim_target') return pad + 'if _targets:\n' + pad + '    bot.turn_gun_toward(_targets[0])\n';
+  if (t === 'bb_fire') return pad + 'bot.fire()\n';
+  if (t === 'bb_drop_slick') return pad + 'bot.drop_oil_slick()\n';
+  if (t === 'bb_say') return pad + 'bot.say(' + genValue(block.getInputTargetBlock('TEXT')) + ')\n';
+  if (t === 'bb_skip_rest') return pad + 'return\n';
+
+  if (t === 'bb_python') {
+    const raw = block.getFieldValue('CODE') || '';
+    return raw.split('\n').map(l => l.trim() ? pad + l : '').join('\n') + '\n';
+  }
+
+  if (t === 'controls_if') {
+    let out = '';
+    let n = 0;
+    while (block.getInput('IF' + n)) {
+      const cond = genValue(block.getInputTargetBlock('IF' + n));
+      const body = genStatements(block.getInputTargetBlock('DO' + n), indent + 1) || (pad + '    pass\n');
+      out += pad + (n === 0 ? 'if ' : 'elif ') + cond + ':\n' + body;
+      n++;
+    }
+    if (block.getInput('ELSE')) {
+      const body = genStatements(block.getInputTargetBlock('ELSE'), indent + 1) || (pad + '    pass\n');
+      out += pad + 'else:\n' + body;
+    }
+    return out;
+  }
+
+  if (t === 'controls_repeat_ext') {
+    const times = genValue(block.getInputTargetBlock('TIMES'));
+    const body = genStatements(block.getInputTargetBlock('DO'), indent + 1) || (pad + '    pass\n');
+    return pad + 'for _i in range(int(' + times + ')):\n' + body;
+  }
+
+  if (t === 'variables_set') {
+    const name = sanitizeVar(block.getField('VAR').getText());
+    return pad + name + ' = ' + genValue(block.getInputTargetBlock('VALUE')) + '\n';
+  }
+
+  if (t === 'math_change') {
+    const name = sanitizeVar(block.getField('VAR').getText());
+    return pad + name + ' = ' + name + ' + ' + genValue(block.getInputTargetBlock('DELTA')) + '\n';
+  }
+
+  return pad + '# (unhandled block: ' + t + ')\n';
+}
+
+// Assemble a full bot file from a workspace.
+function workspaceToPython(ws, header) {
+  const tops = ws.getTopBlocks(true);
+  const handlers = {
+    bb_on_start: { name: 'on_start', args: 'bot' },
+    bb_on_tick: { name: 'on_tick', args: 'bot' },
+    bb_on_hit: { name: 'on_hit', args: 'bot, damage, source' },
+    bb_on_wall: { name: 'on_wall', args: 'bot' },
+  };
+
+  // Variables assigned anywhere need to survive between ticks, so they are
+  // module-level with a `global` declaration inside each handler that uses
+  // them. This is exactly what a kid would have to write by hand.
+  const varNames = ws.getAllVariables().map(v => sanitizeVar(v.name));
+  let out = header;
+  if (varNames.length) {
+    out += '\n';
+    for (const v of varNames) out += v + ' = 0\n';
+  }
+
+  let wrote = false;
+  for (const top of tops) {
+    const h = handlers[top.type];
+    if (!h) continue;
+    wrote = true;
+    const body = top.getInputTargetBlock('BODY');
+    let code = genStatements(body, 1);
+
+    const usesTargets = /_targets/.test(code);
+    const usesHazard = /_hazard/.test(code);
+    let prelude = '';
+    if (usesTargets) prelude += '    _targets = bot.scan()\n';
+    if (usesHazard) prelude += '    _hazard = bot.nearest_hazard()\n';
+
+    const usedVars = varNames.filter(v => new RegExp('\\b' + v + '\\b').test(code));
+    let globals = usedVars.length ? '    global ' + usedVars.join(', ') + '\n' : '';
+
+    if (!code.trim()) code = '    pass\n';
+    out += '\n\ndef ' + h.name + '(' + h.args + '):\n' + globals + prelude + code;
+  }
+
+  if (!wrote) out += '\n\ndef on_tick(bot):\n    pass\n';
+  return out.replace(/\n{4,}/g, '\n\n\n');
+}
+
+
+// --- Python -> Blocks parser ---------------------------------------------
+// This is what makes the toggle genuinely two-way. Statements that match a
+// known block become that block; anything else becomes a purple Python Block
+// holding the raw text. Nothing is ever lost, in either direction.
+
+function splitIntoLines(code) {
+  return code.split('\n').map(raw => ({
+    raw,
+    text: raw.trim(),
+    indent: raw.length - raw.replace(/^\s*/, '').length,
+  }));
+}
+
+// Collect a block of lines that are all indented deeper than `baseIndent`.
+function takeBody(lines, start, baseIndent) {
+  const body = [];
+  let i = start;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (!l.text) { i++; continue; }
+    if (l.indent <= baseIndent) break;
+    body.push(l);
+    i++;
+  }
+  return { body, next: i };
+}
+
+function parseValueExpr(ws, expr) {
+  const e = String(expr).trim();
+
+  const mk = (type, fields) => {
+    const b = ws.newBlock(type);
+    if (fields) for (const k in fields) b.setFieldValue(fields[k], k);
+    b.initSvg(); b.render();
+    return b;
+  };
+
+  if (/^_targets$/.test(e)) return mk('bb_see_enemy');
+  if (/^\(?_targets\[0\]\["distance"\]/.test(e)) return mk('bb_target_distance');
+  if (/^\(?_targets\[0\]\["bearing"\]/.test(e)) return mk('bb_target_bearing');
+  if (/^bot\.health$/.test(e)) return mk('bb_my_health');
+  if (/^bot\.slicks_left$/.test(e)) return mk('bb_slicks_left');
+  if (/^bot\.on_slick$/.test(e)) { const b = mk('bb_crusher_danger'); b.setFieldValue('onslick', 'WHICH'); return b; }
+  if (/_hazard\s*and\s*_hazard\["dangerous"\]/.test(e)) { const b = mk('bb_crusher_danger'); b.setFieldValue('dangerous', 'WHICH'); return b; }
+  if (/_hazard\s*and\s*_hazard\["inside"\]/.test(e)) { const b = mk('bb_crusher_danger'); b.setFieldValue('inside', 'WHICH'); return b; }
+  if (/^-?\d+(\.\d+)?$/.test(e)) return mk('math_number', { NUM: e });
+  if (/^(["']).*\1$/.test(e)) return mk('text', { TEXT: e.slice(1, -1) });
+  if (e === 'True' || e === 'False') return mk('logic_boolean', { BOOL: e === 'True' ? 'TRUE' : 'FALSE' });
+
+  // Comparisons — split on the top-level operator
+  const cmp = splitTopLevel(e, ['==', '!=', '<=', '>=', '<', '>']);
+  if (cmp) {
+    const ops = { '==': 'EQ', '!=': 'NEQ', '<': 'LT', '<=': 'LTE', '>': 'GT', '>=': 'GTE' };
+    const b = mk('logic_compare', { OP: ops[cmp.op] });
+    attachValue(ws, b, 'A', cmp.left);
+    attachValue(ws, b, 'B', cmp.right);
+    return b;
+  }
+  const logic = splitTopLevel(e, [' and ', ' or ']);
+  if (logic) {
+    const b = mk('logic_operation', { OP: logic.op.trim() === 'and' ? 'AND' : 'OR' });
+    attachValue(ws, b, 'A', logic.left);
+    attachValue(ws, b, 'B', logic.right);
+    return b;
+  }
+  const arith = splitTopLevel(e, ['+', '-', '*', '/']);
+  if (arith) {
+    const ops = { '+': 'ADD', '-': 'MINUS', '*': 'MULTIPLY', '/': 'DIVIDE' };
+    const b = mk('math_arithmetic', { OP: ops[arith.op] });
+    attachValue(ws, b, 'A', arith.left);
+    attachValue(ws, b, 'B', arith.right);
+    return b;
+  }
+  if (/^not\s+/.test(e)) {
+    const b = mk('logic_negate');
+    attachValue(ws, b, 'BOOL', e.replace(/^not\s+/, ''));
+    return b;
+  }
+  if (/^[a-z_][a-z0-9_]*$/i.test(e)) {
+    const v = ws.getVariable(e) || ws.createVariable(e);
+    const b = ws.newBlock('variables_get');
+    b.getField('VAR').setValue(v.getId());
+    b.initSvg(); b.render();
+    return b;
+  }
+
+  // Unrecognized expression — keep it as a number block holding the text so
+  // it round-trips rather than being silently dropped.
+  return mk('math_number', { NUM: 0 });
+}
+
+// Split an expression on the first top-level occurrence of any operator.
+function splitTopLevel(expr, ops) {
+  let depth = 0, inStr = null;
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i];
+    if (inStr) { if (c === inStr) inStr = null; continue; }
+    if (c === '"' || c === "'") { inStr = c; continue; }
+    if (c === '(' || c === '[') depth++;
+    if (c === ')' || c === ']') depth--;
+    if (depth !== 0) continue;
+    for (const op of ops) {
+      if (expr.startsWith(op, i)) {
+        const left = expr.slice(0, i).trim();
+        const right = expr.slice(i + op.length).trim();
+        if (left && right) return { left, op, right };
+      }
+    }
+  }
+  return null;
+}
+
+function attachValue(ws, parent, inputName, expr) {
+  const child = parseValueExpr(ws, stripOuterParens(expr));
+  const input = parent.getInput(inputName);
+  if (input && child.outputConnection) {
+    input.connection.connect(child.outputConnection);
+  }
+}
+
+function stripOuterParens(e) {
+  let s = String(e).trim();
+  while (s.startsWith('(') && s.endsWith(')')) {
+    let depth = 0, ok = true;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '(') depth++;
+      if (s[i] === ')') depth--;
+      if (depth === 0 && i < s.length - 1) { ok = false; break; }
+    }
+    if (!ok) break;
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+// Parse a run of statements into a chain of connected blocks.
+// Returns the first block of the chain, or null.
+function parseStatements(ws, lines) {
+  const blocks = [];
+  let i = 0;
+
+  const push = (b) => { if (b) { b.initSvg(); b.render(); blocks.push(b); } };
+  const pyBlock = (text) => {
+    const b = ws.newBlock('bb_python');
+    b.setFieldValue(text, 'CODE');
+    return b;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.text) { i++; continue; }
+    // A comment on its own line doesn't need a block — the blocks say what
+    // they do. Keeping them would fill the workspace with purple noise.
+    if (line.text.startsWith('#')) { i++; continue; }
+    const t = line.text;
+    let m;
+
+    // --- simple calls ---
+    if ((m = t.match(/^bot\.drive\((.*)\)$/))) {
+      const b = ws.newBlock('bb_drive'); push(b); attachValue(ws, b, 'SPEED', m[1]); i++; continue;
+    }
+    if ((m = t.match(/^bot\.turn\((.*)\)$/))) {
+      const b = ws.newBlock('bb_turn'); push(b); attachValue(ws, b, 'DEG', m[1]); i++; continue;
+    }
+    if ((m = t.match(/^bot\.turn_toward\((.*)\)$/))) {
+      const b = ws.newBlock('bb_turn_toward'); push(b); attachValue(ws, b, 'BEARING', m[1]); i++; continue;
+    }
+    if (/^bot\.stop\(\)$/.test(t)) { push(ws.newBlock('bb_stop')); i++; continue; }
+    if ((m = t.match(/^bot\.aim\((.*)\)$/))) {
+      const b = ws.newBlock('bb_aim'); push(b); attachValue(ws, b, 'DEG', m[1]); i++; continue;
+    }
+    if (/^bot\.fire\(\)$/.test(t)) { push(ws.newBlock('bb_fire')); i++; continue; }
+    if (/^bot\.drop_oil_slick\(\)$/.test(t)) { push(ws.newBlock('bb_drop_slick')); i++; continue; }
+    if ((m = t.match(/^bot\.say\((.*)\)$/))) {
+      const b = ws.newBlock('bb_say'); push(b); attachValue(ws, b, 'TEXT', m[1]); i++; continue;
+    }
+    if (/^return$/.test(t)) { push(ws.newBlock('bb_skip_rest')); i++; continue; }
+
+    // The generated "point gun at target" idiom is two lines
+    if (/^if _targets:$/.test(t) && lines[i + 1] && /^bot\.turn_gun_toward\(_targets\[0\]\)$/.test(lines[i + 1].text)) {
+      push(ws.newBlock('bb_aim_target')); i += 2; continue;
+    }
+
+    // --- if / elif / else ---
+    if ((m = t.match(/^if\s+(.*):$/))) {
+      const ifBlock = ws.newBlock('controls_if');
+      push(ifBlock);
+      let clauseCount = 0, elseCount = 0;
+      const conds = [stripOuterParens(m[1])];
+      const bodies = [];
+
+      let r = takeBody(lines, i + 1, line.indent);
+      bodies.push(r.body);
+      i = r.next;
+
+      while (i < lines.length && lines[i].indent === line.indent && /^elif\s+(.*):$/.test(lines[i].text)) {
+        conds.push(stripOuterParens(lines[i].text.match(/^elif\s+(.*):$/)[1]));
+        r = takeBody(lines, i + 1, lines[i].indent);
+        bodies.push(r.body);
+        i = r.next;
+      }
+      let elseBody = null;
+      if (i < lines.length && lines[i].indent === line.indent && /^else:$/.test(lines[i].text)) {
+        r = takeBody(lines, i + 1, lines[i].indent);
+        elseBody = r.body;
+        i = r.next;
+      }
+
+      clauseCount = conds.length - 1;
+      elseCount = elseBody ? 1 : 0;
+      if (clauseCount || elseCount) {
+        ifBlock.loadExtraState
+          ? ifBlock.loadExtraState({ elseIfCount: clauseCount, hasElse: !!elseCount })
+          : ifBlock.domToMutation && ifBlock.domToMutation(
+              Blockly.utils.xml.textToDom('<mutation elseif="' + clauseCount + '" else="' + elseCount + '"></mutation>'));
+        ifBlock.initSvg(); ifBlock.render();
+      }
+
+      conds.forEach((c, n) => attachValue(ws, ifBlock, 'IF' + n, c));
+      bodies.forEach((body, n) => {
+        const first = parseStatements(ws, dedent(body));
+        const input = ifBlock.getInput('DO' + n);
+        if (first && input) input.connection.connect(first.previousConnection);
+      });
+      if (elseBody) {
+        const first = parseStatements(ws, dedent(elseBody));
+        const input = ifBlock.getInput('ELSE');
+        if (first && input) input.connection.connect(first.previousConnection);
+      }
+      continue;
+    }
+
+    // --- for _i in range(n) ---
+    if ((m = t.match(/^for\s+\w+\s+in\s+range\(int\((.*)\)\):$/)) || (m = t.match(/^for\s+\w+\s+in\s+range\((.*)\):$/))) {
+      const b = ws.newBlock('controls_repeat_ext');
+      push(b);
+      attachValue(ws, b, 'TIMES', m[1]);
+      const r = takeBody(lines, i + 1, line.indent);
+      const first = parseStatements(ws, dedent(r.body));
+      if (first && b.getInput('DO')) b.getInput('DO').connection.connect(first.previousConnection);
+      i = r.next;
+      continue;
+    }
+
+    // --- variable assignment ---
+    if ((m = t.match(/^([a-z_][a-z0-9_]*)\s*=\s*(.+)$/i)) && !/^(bot|_targets|_hazard)\b/.test(m[1])) {
+      const name = m[1];
+      const v = ws.getVariable(name) || ws.createVariable(name);
+      const b = ws.newBlock('variables_set');
+      b.getField('VAR').setValue(v.getId());
+      push(b);
+      attachValue(ws, b, 'VALUE', m[2]);
+      i++; continue;
+    }
+
+    // --- anything else becomes a Python Block ---
+    // Multi-line constructs (while, def, try...) are kept whole and opaque.
+    if (/^(while|def|try|except|finally|with|class)\b/.test(t) || t.endsWith(':')) {
+      const r = takeBody(lines, i + 1, line.indent);
+      const chunk = [line.raw].concat(r.body.map(l => l.raw)).join('\n');
+      push(pyBlock(dedentText(chunk)));
+      i = r.next;
+      continue;
+    }
+    push(pyBlock(t));
+    i++;
+  }
+
+  // Chain them together
+  for (let k = 0; k < blocks.length - 1; k++) {
+    if (blocks[k].nextConnection && blocks[k + 1].previousConnection) {
+      blocks[k].nextConnection.connect(blocks[k + 1].previousConnection);
+    }
+  }
+  return blocks[0] || null;
+}
+
+function dedent(lines) {
+  if (!lines.length) return lines;
+  const min = Math.min(...lines.filter(l => l.text).map(l => l.indent));
+  return lines.map(l => ({ raw: l.raw.slice(min), text: l.text, indent: Math.max(0, l.indent - min) }));
+}
+
+function dedentText(text) {
+  const lines = text.split('\n');
+  const indents = lines.filter(l => l.trim()).map(l => l.length - l.replace(/^\s*/, '').length);
+  const min = indents.length ? Math.min(...indents) : 0;
+  return lines.map(l => l.slice(min)).join('\n');
+}
+
+// Top-level entry point: turn a whole bot file into a workspace.
+function loadPythonIntoBlocks(which) {
+  const ta = which === 'a' ? codeA : codeB;
+  const ws = workspaces[which];
+  if (!ws) return;
+
+  suppressSync = true;
+  ws.clear();
+
+  const code = ta.value;
+  const lines = splitIntoLines(code);
+  const handlerMap = {
+    on_start: 'bb_on_start', on_tick: 'bb_on_tick',
+    on_hit: 'bb_on_hit', on_wall: 'bb_on_wall',
+  };
+
+  let y = 20;
+  const leftovers = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.text) { i++; continue; }
+    const m = line.text.match(/^def\s+(\w+)\s*\(/);
+
+    if (m && handlerMap[m[1]]) {
+      const hat = ws.newBlock(handlerMap[m[1]]);
+      hat.initSvg(); hat.render();
+      hat.moveBy(20, y);
+      y += 200;
+
+      const r = takeBody(lines, i + 1, line.indent);
+      // Drop the machinery the generator adds — it gets regenerated on the
+      // way back out, so showing it as blocks would be noise.
+      const body = dedent(r.body).filter(l =>
+        !/^global\s/.test(l.text) &&
+        !/^_targets\s*=\s*bot\.scan\(\)$/.test(l.text) &&
+        !/^_hazard\s*=\s*bot\.nearest_hazard\(\)$/.test(l.text) &&
+        l.text !== 'pass'
+      );
+      const first = parseStatements(ws, body);
+      if (first && hat.getInput('BODY')) {
+        hat.getInput('BODY').connection.connect(first.previousConnection);
+      }
+      i = r.next;
+      continue;
+    }
+
+    // Skip the header lines — those belong to the garage, not the blocks.
+    if (/^BOT_NAME\s*=/.test(line.text)) { i++; continue; }
+    if (/^LOADOUT\s*=/.test(line.text)) {
+      const r = takeBody(lines, i + 1, line.indent);
+      i = r.next;
+      // consume the closing brace line if present
+      while (i < lines.length && /^\}/.test(lines[i].text)) i++;
+      continue;
+    }
+    if (/^#/.test(line.text)) { i++; continue; }
+
+    // Module-level variable initialisers are recreated by the generator
+    if (/^[a-z_][a-z0-9_]*\s*=\s*/i.test(line.text)) {
+      const name = line.text.split('=')[0].trim();
+      if (!ws.getVariable(name)) ws.createVariable(name);
+      i++; continue;
+    }
+
+    // Any other top-level code: keep it in a Python Block so it isn't lost
+    if (/^(def|while|for|if|try|with|class)\b/.test(line.text) || line.text.endsWith(':')) {
+      const r = takeBody(lines, i + 1, line.indent);
+      leftovers.push([line.raw].concat(r.body.map(l => l.raw)).join('\n'));
+      i = r.next;
+    } else {
+      leftovers.push(line.raw);
+      i++;
+    }
+  }
+
+  if (leftovers.length) {
+    const b = ws.newBlock('bb_python');
+    b.setFieldValue(dedentText(leftovers.join('\n')), 'CODE');
+    b.initSvg(); b.render();
+    b.moveBy(320, 20);
+  }
+
+  suppressSync = false;
+  validatePythonBlocks(which);
+}
+
+// --- Blockly workspaces ---------------------------------------------------
+
+const TOOLBOX = {
+  kind: 'categoryToolbox',
+  contents: [
+    { kind: 'category', name: 'When…', colour: HAT_COLOUR, contents: [
+      { kind: 'block', type: 'bb_on_start' },
+      { kind: 'block', type: 'bb_on_tick' },
+      { kind: 'block', type: 'bb_on_hit' },
+      { kind: 'block', type: 'bb_on_wall' },
+    ]},
+    { kind: 'category', name: 'Move', colour: MOVE_COLOUR, contents: [
+      { kind: 'block', type: 'bb_drive', inputs: { SPEED: { shadow: { type: 'math_number', fields: { NUM: 3 } } } } },
+      { kind: 'block', type: 'bb_turn', inputs: { DEG: { shadow: { type: 'math_number', fields: { NUM: 5 } } } } },
+      { kind: 'block', type: 'bb_turn_toward', inputs: { BEARING: { shadow: { type: 'math_number', fields: { NUM: 0 } } } } },
+      { kind: 'block', type: 'bb_stop' },
+    ]},
+    { kind: 'category', name: 'Shoot', colour: GUN_COLOUR, contents: [
+      { kind: 'block', type: 'bb_aim', inputs: { DEG: { shadow: { type: 'math_number', fields: { NUM: 9 } } } } },
+      { kind: 'block', type: 'bb_aim_target' },
+      { kind: 'block', type: 'bb_fire' },
+    ]},
+    { kind: 'category', name: 'Sense', colour: SENSE_COLOUR, contents: [
+      { kind: 'block', type: 'bb_see_enemy' },
+      { kind: 'block', type: 'bb_target_distance' },
+      { kind: 'block', type: 'bb_target_bearing' },
+      { kind: 'block', type: 'bb_my_health' },
+      { kind: 'block', type: 'bb_slicks_left' },
+      { kind: 'block', type: 'bb_crusher_danger' },
+    ]},
+    { kind: 'category', name: 'Do', colour: ACTION_COLOUR, contents: [
+      { kind: 'block', type: 'bb_drop_slick' },
+      { kind: 'block', type: 'bb_say', inputs: { TEXT: { shadow: { type: 'text', fields: { TEXT: 'Take that!' } } } } },
+      { kind: 'block', type: 'bb_skip_rest' },
+    ]},
+    { kind: 'category', name: 'Logic', colour: LOGIC_COLOUR, contents: [
+      { kind: 'block', type: 'controls_if' },
+      { kind: 'block', type: 'logic_compare' },
+      { kind: 'block', type: 'logic_operation' },
+      { kind: 'block', type: 'logic_negate' },
+      { kind: 'block', type: 'logic_boolean' },
+      { kind: 'block', type: 'controls_repeat_ext', inputs: { TIMES: { shadow: { type: 'math_number', fields: { NUM: 3 } } } } },
+    ]},
+    { kind: 'category', name: 'Numbers', colour: NUM_COLOUR, contents: [
+      { kind: 'block', type: 'math_number' },
+      { kind: 'block', type: 'math_arithmetic' },
+      { kind: 'block', type: 'text' },
+    ]},
+    { kind: 'category', name: 'Variables', colour: VAR_COLOUR, custom: 'VARIABLE' },
+    { kind: 'category', name: 'Python', colour: PYBLOCK_COLOUR, contents: [
+      { kind: 'block', type: 'bb_python' },
+    ]},
+  ],
+};
+
+const workspaces = {};
+const editorMode = { a: 'blocks', b: 'blocks' };
+const blockedLaunch = { a: false, b: false };
+let suppressSync = false;
+
+function initBlockly(which) {
+  const theme = Blockly.Theme.defineTheme('botbattles_' + which, {
+    base: Blockly.Themes.Classic,
+    // Blockly's built-in categories default to bright hues with white text,
+    // which fail contrast badly. Override them to the accessible palette.
+    blockStyles: {
+      logic_blocks:     { colourPrimary: LOGIC_COLOUR },
+      loop_blocks:      { colourPrimary: LOGIC_COLOUR },
+      math_blocks:      { colourPrimary: NUM_COLOUR },
+      text_blocks:      { colourPrimary: NUM_COLOUR },
+      variable_blocks:  { colourPrimary: VAR_COLOUR },
+      variable_dynamic_blocks: { colourPrimary: VAR_COLOUR },
+      procedure_blocks: { colourPrimary: LOGIC_COLOUR },
+      list_blocks:      { colourPrimary: VAR_COLOUR },
+      colour_blocks:    { colourPrimary: NUM_COLOUR },
+    },
+    componentStyles: {
+      workspaceBackgroundColour: '#1a1e27',
+      toolboxBackgroundColour: '#20242e',
+      toolboxForegroundColour: '#c9d1d9',
+      flyoutBackgroundColour: '#191d25',
+      flyoutForegroundColour: '#9aa2b1',
+      flyoutOpacity: 1,
+      scrollbarColour: '#3a4152',
+      insertionMarkerColour: '#f2a541',
+      insertionMarkerOpacity: 0.5,
+    },
+  });
+
+  const ws = Blockly.inject('blockly-' + which, {
+    toolbox: TOOLBOX,
+    theme: theme,
+    renderer: 'zelos',
+    grid: { spacing: 22, length: 3, colour: '#252a35', snap: true },
+    zoom: { controls: true, wheel: true, startScale: 0.7, minScale: 0.4, maxScale: 1.4 },
+    trashcan: true,
+    move: { scrollbars: true, drag: true, wheel: true },
+  });
+  workspaces[which] = ws;
+
+  ws.addChangeListener((e) => {
+    if (suppressSync || e.isUiEvent) return;
+    if (editorMode[which] !== 'blocks') return;
+    regeneratePython(which);
+  });
+  return ws;
+}
+
+// Rebuild the Python pane from the blocks. The header (BOT_NAME + LOADOUT) is
+// preserved so the garage and the blocks don't fight over the same file.
+function regeneratePython(which) {
+  const ta = which === 'a' ? codeA : codeB;
+  const ws = workspaces[which];
+  if (!ws) return;
+  ta.value = workspaceToPython(ws, extractHeader(ta.value, which));
+  validatePythonBlocks(which);
+}
+
+function extractHeader(code, which) {
+  const st = garageState[which];
+  const slotStr = st.slots.map(s => '"' + s + '"').join(', ');
+  const nm = sanitizeBotName(st.name) || ('Bot ' + which.toUpperCase());
+  const name = 'BOT_NAME = "' + nm + '"';
+  const lo = 'LOADOUT = {\n    "chassis": "' + st.chassis + '",\n    "slots": [' + slotStr + '],\n}';
+  return name + '\n' + lo;
+}
+
+// Live validation: a malformed Python Block goes red as you type rather than
+// failing thirty seconds later when a battle launches.
+function validatePythonBlocks(which) {
+  const ws = workspaces[which];
+  const hint = document.getElementById('hint-' + which);
+  if (!ws) return true;
+  let bad = null;
+
+  for (const b of ws.getAllBlocks(false)) {
+    if (b.type !== 'bb_python') continue;
+    const problem = quickPythonCheck(b.getFieldValue('CODE') || '');
+    if (problem) {
+      b.setColour(BAD_COLOUR);
+      b.setWarningText(problem);
+      if (!bad) bad = problem;
+    } else {
+      b.setColour(PYBLOCK_COLOUR);
+      b.setWarningText(null);
+    }
+  }
+
+  if (hint) {
+    if (bad) {
+      hint.textContent = '⚠ Python block: ' + bad;
+      hint.className = 'editor-hint bad';
+    } else {
+      hint.textContent = editorMode[which] === 'blocks'
+        ? 'blocks build the Python →'
+        : 'typing Python — switch to Blocks anytime';
+      hint.className = 'editor-hint';
+    }
+  }
+  blockedLaunch[which] = !!bad;
+  return !bad;
+}
+
+// Fast structural check — catches the mistakes kids actually make without
+// round-tripping through Pyodide on every keystroke.
+function quickPythonCheck(code) {
+  if (!code.trim()) return 'this block is empty';
+
+  // Strip comments before scanning: an apostrophe in an ordinary English
+  // comment ("when it's arming") must not read as an unclosed string.
+  const stripped = code.split('\n').map(line => {
+    let inStr = null;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inStr) { if (c === inStr && line[i - 1] !== '\\') inStr = null; continue; }
+      if (c === '"' || c === "'") { inStr = c; continue; }
+      if (c === '#') return line.slice(0, i);
+    }
+    return line;
+  }).join('\n');
+
+  const pairs = { '(': ')', '[': ']', '{': '}' };
+  const stack = [];
+  let inStr = null;
+  for (let i = 0; i < stripped.length; i++) {
+    const c = stripped[i];
+    if (c === '\n') { inStr = null; continue; }   // strings don't span lines here
+    if (inStr) { if (c === inStr && stripped[i - 1] !== '\\') inStr = null; continue; }
+    if (c === '"' || c === "'") { inStr = c; continue; }
+    if (pairs[c]) stack.push(pairs[c]);
+    else if (c === ')' || c === ']' || c === '}') {
+      if (stack.pop() !== c) return 'mismatched brackets';
+    }
+  }
+  if (inStr) return 'a quote was never closed';
+  if (stack.length) return 'missing a closing ' + stack[stack.length - 1];
+
+  for (const raw of code.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (/^(if|elif|else|for|while|def|try|except|finally|with)\b/.test(line) && !line.endsWith(':')) {
+      return 'that line needs a : at the end';
+    }
+    if (/^(import|from)\b/.test(line)) return 'imports are not allowed in bot code';
+  }
+  return null;
+}
+
+function setMode(which, mode) {
+  editorMode[which] = mode;
+  const split = document.getElementById('split-' + which);
+  const ta = which === 'a' ? codeA : codeB;
+
+  document.querySelectorAll('[data-mode-for="' + which + '"] .mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
+  });
+
+  if (mode === 'blocks') {
+    split.classList.remove('python-only');
+    ta.readOnly = true;
+    if (workspaces[which]) Blockly.svgResize(workspaces[which]);
+    regeneratePython(which);
+  } else {
+    split.classList.add('python-only');
+    ta.readOnly = false;
+  }
+
+  // Keep an expanded card's layout in step with the mode
+  const card = document.querySelector('.editor-card.' + which);
+  if (card && card.classList.contains('fullscreen')) {
+    card.classList.toggle('blocks-hidden', mode === 'python');
+    resizeWorkspaceSoon(which);
+  }
+
+  validatePythonBlocks(which);
+}
+
+document.querySelectorAll('.mode-toggle .mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const which = btn.parentElement.getAttribute('data-mode-for');
+    const mode = btn.getAttribute('data-mode');
+    if (mode === editorMode[which]) return;
+    // Coming back from Python: reparse so nothing is lost — anything the
+    // blocks can't express becomes a Python Block.
+    if (mode === 'blocks') loadPythonIntoBlocks(which);
+    setMode(which, mode);
+  });
+});
+
+document.querySelectorAll('[data-copy]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const which = btn.getAttribute('data-copy');
+    const ta = which === 'a' ? codeA : codeB;
+    if (navigator.clipboard) navigator.clipboard.writeText(ta.value);
+    const old = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+});
+
+// --- Full-screen editor --------------------------------------------------
+// Half a card is not enough room to drag blocks around, especially for a
+// younger kid. Expanding lifts one bot's editor over everything else.
+
+let expandedBot = null;
+
+function resizeWorkspaceSoon(which) {
+  // Blockly needs a nudge after the container changes size, and the layout
+  // isn't final until the next frame.
+  const ws = workspaces[which];
+  if (!ws) return;
+  requestAnimationFrame(() => {
+    Blockly.svgResize(ws);
+    setTimeout(() => Blockly.svgResize(ws), 120);
+  });
+}
+
+function setExpanded(which) {
+  const backdrop = document.getElementById('fs-backdrop');
+
+  // Collapse whatever is currently open
+  if (expandedBot) {
+    const prev = document.querySelector('.editor-card.' + expandedBot);
+    if (prev) prev.classList.remove('fullscreen');
+    const prevBtn = document.querySelector('[data-expand="' + expandedBot + '"]');
+    if (prevBtn) prevBtn.textContent = '⛶ Expand';
+    const was = expandedBot;
+    expandedBot = null;
+    backdrop.classList.remove('show');
+    resizeWorkspaceSoon(was);
+    if (was === which) return;   // clicking the open one closes it
+  }
+
+  if (!which) return;
+
+  const card = document.querySelector('.editor-card.' + which);
+  if (!card) return;
+  card.classList.add('fullscreen');
+  card.classList.toggle('blocks-hidden', editorMode[which] === 'python');
+  backdrop.classList.add('show');
+  const btn = document.querySelector('[data-expand="' + which + '"]');
+  if (btn) btn.textContent = '✕ Close';
+  expandedBot = which;
+  resizeWorkspaceSoon(which);
+}
+
+document.querySelectorAll('[data-expand]').forEach(btn => {
+  btn.addEventListener('click', () => setExpanded(btn.getAttribute('data-expand')));
+});
+
+document.getElementById('fs-backdrop').addEventListener('click', () => setExpanded(null));
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && expandedBot) setExpanded(null);
+});
+
+// --- The Garage ----------------------------------------------------------
+// The garage is the source of truth for a bot's hardware. Editing it rewrites
+// the LOADOUT dict in the code editor, so the two views never drift apart —
+// and a kid can see the Python change as they click, which is half the point.
+
+const NAME_ADJECTIVES = ['Turbo', 'Sir', 'Captain', 'Mega', 'Sneaky', 'Crusty', 'Wobbly', 'Danger',
+  'Professor', 'Lord', 'Tiny', 'Grumpy', 'Zippy', 'Rusty', 'Doctor'];
+const NAME_NOUNS = ['Toaster', 'Waffle', 'Crumbs', 'Blender', 'Spatula', 'Muffin', 'Kettle', 'Whisk',
+  'Bagel', 'Sprocket', 'Noodle', 'Pancake', 'Biscuit', 'Doorknob'];
+const NAME_SUFFIX = ['', '', '', ' Jr.', ' the Third', '-a-Lot', ' 3000', ' Supreme'];
+
+function randomBotName() {
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  return sanitizeBotName(pick(NAME_ADJECTIVES) + ' ' + pick(NAME_NOUNS) + pick(NAME_SUFFIX));
+}
+
+let pointBudget = 100;
+const garageState = {
+  a: { name: 'Blue Bolt', chassis: 'toaster', slots: ['bolt_blaster'] },
+  b: { name: 'Red Rascal', chassis: 'roomba', slots: ['crumb_cannon'] },
+};
+
+// Bot names come from the garage, not the code pane — a kid working in blocks
+// never sees the Python, so naming has to live somewhere they can reach.
+function sanitizeBotName(raw) {
+  return String(raw).replace(/["'\\\n\r]/g, '').trim().slice(0, 24);
+}
+
+function writeNameToCode(which) {
+  const ta = which === 'a' ? codeA : codeB;
+  const nm = sanitizeBotName(garageState[which].name) || ('Bot ' + which.toUpperCase());
+  const line = 'BOT_NAME = "' + nm + '"';
+  if (/BOT_NAME\s*=\s*["'][^"']*["']/.test(ta.value)) {
+    ta.value = ta.value.replace(/BOT_NAME\s*=\s*["'][^"']*["']/, line);
+  } else {
+    ta.value = line + '\n' + ta.value;
+  }
+}
+
+function parseNameFromCode(code) {
+  const m = code.match(/BOT_NAME\s*=\s*["']([^"']*)["']/);
+  return m ? m[1] : null;
+}
+
+function parseLoadoutFromCode(code) {
+  const chassisMatch = code.match(/["']chassis["']\s*:\s*["']([a-z_]+)["']/);
+  const slotsMatch = code.match(/["']slots["']\s*:\s*\[([^\]]*)\]/);
+  const legacyWeapon = code.match(/["']weapon["']\s*:\s*["']([a-z_]+)["']/);
+
+  const chassis = (chassisMatch && CATALOG.chassis[chassisMatch[1]]) ? chassisMatch[1] : null;
+  let slots = null;
+  if (slotsMatch) {
+    slots = slotsMatch[1].split(',')
+      .map(s => s.trim().replace(/^["']|["']$/g, ''))
+      .filter(s => s && (CATALOG.weapons[s] || CATALOG.defenses[s] || CATALOG.gadgets[s]));
+  } else if (legacyWeapon && CATALOG.weapons[legacyWeapon[1]]) {
+    slots = [legacyWeapon[1]];
+  }
+  if (!chassis && !slots) return null;
+  return { chassis: chassis || 'toaster', slots: slots || [] };
+}
+
+function writeLoadoutToCode(which) {
+  const ta = which === 'a' ? codeA : codeB;
+  const st = garageState[which];
+  const slotStr = st.slots.map(s => '"' + s + '"').join(', ');
+  const block = 'LOADOUT = {\n    "chassis": "' + st.chassis + '",\n    "slots": [' + slotStr + '],\n}';
+
+  // Replace an existing LOADOUT assignment (single or multi-line), or insert
+  // one after BOT_NAME if the file doesn't have one yet.
+  const existing = /LOADOUT\s*=\s*\{[\s\S]*?\n?\}/;
+  if (existing.test(ta.value)) {
+    ta.value = ta.value.replace(existing, block);
+  } else {
+    const nameLine = /(BOT_NAME\s*=\s*["'][^"']*["'])/;
+    if (nameLine.test(ta.value)) {
+      ta.value = ta.value.replace(nameLine, '$1\n' + block);
+    } else {
+      ta.value = block + '\n\n' + ta.value;
+    }
+  }
+}
+
+function slotCountFor(which) {
+  return CATALOG.chassis[garageState[which].chassis].slots;
+}
+
+function currentCost(which) {
+  const st = garageState[which];
+  return loadoutCost(st.chassis, st.slots);
+}
+
+function renderGarages() {
+  const container = document.getElementById('garages');
+  container.innerHTML = '';
+
+  for (const which of ['a', 'b']) {
+    const st = garageState[which];
+    const cost = currentCost(which);
+    const over = cost > pointBudget;
+    const maxSlots = slotCountFor(which);
+
+    const g = document.createElement('div');
+    g.className = 'garage ' + which;
+
+    // Header with running points total
+    const head = document.createElement('div');
+    head.className = 'garage-title';
+    head.innerHTML = '<span class="who ' + which + '">Bot ' + which.toUpperCase() + '</span>' +
+      '<span class="points"><span class="' + (over ? 'over' : 'ok') + '">' + cost + '</span>' +
+      ' / ' + pointBudget + ' pts</span>';
+    g.appendChild(head);
+
+    // Name first — it's the thing kids most want to set, so it shouldn't be
+    // buried below the hardware.
+    const nl = document.createElement('div');
+    nl.className = 'sub-label';
+    nl.style.marginTop = '0';
+    nl.textContent = 'Name your bot';
+    g.appendChild(nl);
+
+    const nameWrap = document.createElement('div');
+    nameWrap.className = 'name-row';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'bot-name-input ' + which;
+    // Defensive fallback: never let a missing name render as the literal
+    // string "undefined" in the box.
+    nameInput.value = st.name || '';
+    nameInput.maxLength = 24;
+    nameInput.placeholder = 'Sir Toasts-a-Lot';
+    nameInput.setAttribute('aria-label', 'Name for bot ' + which.toUpperCase());
+    nameInput.addEventListener('input', () => {
+      st.name = sanitizeBotName(nameInput.value);
+      writeNameToCode(which);
+      // Update the health-bar label live so the change is visible immediately
+      const lbl = ui[which] && ui[which].name;
+      if (lbl) lbl.textContent = st.name || ('Bot ' + which.toUpperCase());
+      names[which] = st.name || ('Bot ' + which.toUpperCase());
+    });
+    const dice = document.createElement('button');
+    dice.className = 'secondary tiny';
+    dice.textContent = '🎲';
+    dice.title = 'Random name';
+    dice.addEventListener('click', () => {
+      const nm = randomBotName();
+      st.name = nm;
+      nameInput.value = nm;
+      writeNameToCode(which);
+      if (ui[which] && ui[which].name) ui[which].name.textContent = nm;
+      names[which] = nm;
+    });
+    nameWrap.appendChild(nameInput);
+    nameWrap.appendChild(dice);
+    g.appendChild(nameWrap);
+
+    if (over) {
+      const warn = document.createElement('div');
+      warn.className = 'over-budget';
+      warn.textContent = '⚠ OVER BUDGET BY ' + (cost - pointBudget) + ' POINTS';
+      g.appendChild(warn);
+    }
+
+    const blurb = document.createElement('div');
+    blurb.className = 'garage-blurb';
+    blurb.textContent = CATALOG.chassis[st.chassis].blurb;
+
+    // Chassis
+    const cl = document.createElement('div');
+    cl.className = 'sub-label';
+    cl.textContent = 'Chassis';
+    g.appendChild(cl);
+
+    const crow = document.createElement('div');
+    crow.className = 'chassis-row';
+    for (const cname in CATALOG.chassis) {
+      const ch = CATALOG.chassis[cname];
+      const btn = document.createElement('button');
+      btn.className = 'chassis-btn' + (st.chassis === cname ? ' sel' : '');
+      btn.innerHTML = ch.label + '<span class="c">' + ch.cost + 'p · ' + ch.slots + ' slots</span>';
+      btn.addEventListener('mouseenter', () => { blurb.textContent = ch.blurb; });
+      btn.addEventListener('click', () => {
+        st.chassis = cname;
+        // Trim to the new slot count if we shrank
+        st.slots = st.slots.slice(0, ch.slots);
+        writeLoadoutToCode(which);
+        renderGarages();
+        if (editorMode[which] === 'blocks') regeneratePython(which);
+      });
+      crow.appendChild(btn);
+    }
+    g.appendChild(crow);
+
+    // Slots
+    const sl = document.createElement('div');
+    sl.className = 'sub-label';
+    sl.textContent = 'Slots (click to remove)';
+    g.appendChild(sl);
+
+    const srow = document.createElement('div');
+    srow.className = 'slots';
+    const seen = {};
+    for (let i = 0; i < maxSlots; i++) {
+      const item = st.slots[i];
+      const slot = document.createElement('div');
+      if (item) {
+        const n = seen[item] || 0;
+        seen[item] = n + 1;
+        const def = CATALOG.weapons[item] || CATALOG.defenses[item] || CATALOG.gadgets[item];
+        slot.className = 'slot filled';
+        slot.innerHTML = def.label + '<span class="cost">' + itemCost(item, n) + 'p</span>';
+        slot.title = 'Click to remove';
+        slot.addEventListener('click', () => {
+          st.slots.splice(i, 1);
+          writeLoadoutToCode(which);
+          renderGarages();
+          if (editorMode[which] === 'blocks') regeneratePython(which);
+        });
+        slot.addEventListener('mouseenter', () => { blurb.textContent = def.blurb; });
+      } else {
+        slot.className = 'slot';
+        slot.innerHTML = '<span class="empty-label">empty</span>';
+      }
+      srow.appendChild(slot);
+    }
+    g.appendChild(srow);
+
+    // Parts bin
+    const pl = document.createElement('div');
+    pl.className = 'sub-label';
+    pl.textContent = 'Parts (click to equip)';
+    g.appendChild(pl);
+
+    const prow = document.createElement('div');
+    prow.className = 'parts';
+    const groups = [
+      ['weapons', 'wep'], ['defenses', 'def'], ['gadgets', 'gad'],
+    ];
+    for (const [groupName, cls] of groups) {
+      for (const iname in CATALOG[groupName]) {
+        const def = CATALOG[groupName][iname];
+        const already = st.slots.filter(s => s === iname).length;
+        const nextCost = itemCost(iname, already);
+        const btn = document.createElement('button');
+        btn.className = 'part ' + cls;
+        btn.innerHTML = def.label + '<span class="pc">' + nextCost + 'p</span>';
+        btn.disabled = st.slots.length >= maxSlots;
+        btn.addEventListener('mouseenter', () => { blurb.textContent = def.blurb; });
+        btn.addEventListener('click', () => {
+          if (st.slots.length >= maxSlots) return;
+          st.slots.push(iname);
+          writeLoadoutToCode(which);
+          renderGarages();
+          if (editorMode[which] === 'blocks') regeneratePython(which);
+        });
+        prow.appendChild(btn);
+      }
+    }
+    g.appendChild(prow);
+    g.appendChild(blurb);
+
+    container.appendChild(g);
+  }
+}
+
+document.querySelectorAll('.class-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.class-btn').forEach(x => x.classList.remove('active'));
+    btn.classList.add('active');
+    pointBudget = Number(btn.getAttribute('data-class'));
+    renderGarages();
+  });
+});
+
+// If someone edits LOADOUT by hand in the code, pull it back into the garage.
+function syncGarageFromCode(which) {
+  const ta = which === 'a' ? codeA : codeB;
+  const nm = parseNameFromCode(ta.value);
+  if (nm) garageState[which].name = nm;
+  const parsed = parseLoadoutFromCode(ta.value);
+  if (parsed) {
+    const maxSlots = CATALOG.chassis[parsed.chassis].slots;
+    // BUGFIX: this used to replace the whole state object ({chassis, slots}
+    // only), which silently dropped the .name set two lines above — an
+    // input's .value set to undefined renders as the literal text
+    // "undefined". Update chassis/slots in place instead so name (and
+    // anything else added later) survives.
+    garageState[which].chassis = parsed.chassis;
+    garageState[which].slots = parsed.slots.slice(0, maxSlots);
+    renderGarages();
+  }
+}
+codeA.addEventListener('blur', () => syncGarageFromCode('a'));
+codeB.addEventListener('blur', () => syncGarageFromCode('b'));
+
+syncGarageFromCode('a');
+syncGarageFromCode('b');
+renderGarages();
+
+// Show the garage names on the health bars before the first battle loads
+for (const w of ['a', 'b']) {
+  names[w] = garageState[w].name || ('Bot ' + w.toUpperCase());
+  if (ui[w] && ui[w].name) ui[w].name.textContent = names[w];
+}
+
+// Blockly comes up in blocks mode with the default bots parsed into blocks,
+// so the very first thing a kid sees is their bot as blocks AND as Python.
+defineBlocks();
+initBlockly('a');
+initBlockly('b');
+loadPythonIntoBlocks('a');
+loadPythonIntoBlocks('b');
+setMode('a', 'blocks');
+setMode('b', 'blocks');
+window.addEventListener('resize', () => {
+  for (const w of ['a','b']) if (workspaces[w]) Blockly.svgResize(workspaces[w]);
+});
+
+startWorker();
+renderLoop();
+</script>
+
+</body>
+</html>
